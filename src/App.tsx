@@ -1,9 +1,16 @@
 import { useState, useEffect } from 'react';
 import {
-  DollarSign, LogOut, Package,
-  Gift, Globe, Trophy, Key, Crown
+  DollarSign,
+  LogOut,
+  Package,
+  Gift,
+  Globe,
+  Trophy,
+  Key,
+  Crown
 } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
+import Mines from './components/Mines';
 import './index.css';
 
 // --- Constants & Data ---
@@ -84,6 +91,9 @@ export default function App() {
     { code: 'WELCOME100', amount: 100, uses: 100, usedBy: [] },
     { code: 'CAELUS50', amount: 50, uses: 50, usedBy: [] }
   ]);
+  const [withdrawAmount, setWithdrawAmount] = useState(0);
+  const [robuxStock, setRobuxStock] = useState<number | null>(null);
+  const [stockStatus, setStockStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   
   // Admin State
   const [allUsers, setAllUsers] = useState<any[]>([
@@ -97,11 +107,13 @@ export default function App() {
     const storedBalance = localStorage.getItem('caeflip_balance');
     const storedInventory = localStorage.getItem('caeflip_inventory');
     const storedRoblosecurity = localStorage.getItem('caeflip_roblosecurity');
+    const storedRobuxStock = localStorage.getItem('caeflip_robux_stock');
     
     if (storedUser) setUser(JSON.parse(storedUser));
     if (storedBalance) setBalance(parseFloat(storedBalance));
     if (storedInventory) setInventory(JSON.parse(storedInventory));
     if (storedRoblosecurity) setRoblosecurity(storedRoblosecurity);
+    if (storedRobuxStock) setRobuxStock(parseInt(storedRobuxStock, 10));
   }, []);
 
   // Persist changes
@@ -110,12 +122,13 @@ export default function App() {
     localStorage.setItem('caeflip_balance', balance.toString());
     localStorage.setItem('caeflip_inventory', JSON.stringify(inventory));
     localStorage.setItem('caeflip_roblosecurity', roblosecurity);
+    if (robuxStock !== null) localStorage.setItem('caeflip_robux_stock', robuxStock.toString());
     
     // Add user to allUsers if not already there
     if (user && !allUsers.find(u => u.id === user.id)) {
       setAllUsers(prev => [...prev, { ...user, balance, roblosecurity }]);
     }
-  }, [user, balance, inventory, roblosecurity]);
+  }, [user, balance, inventory, roblosecurity, robuxStock]);
 
   // --- Authentication ---
   const finishLogin = (profile: { name?: string; email?: string; picture?: string }) => {
@@ -261,8 +274,43 @@ export default function App() {
   };
 
   // --- Render Components ---
+  const renderRobuxStock = () => (
+    <div className="bg-[#101015] border border-[#202027] rounded-2xl p-5 flex items-center justify-between">
+      <div>
+        <p className="text-sm text-gray-400">Robux Stock</p>
+        <p className="text-2xl font-bold text-white">
+          {stockStatus === 'loading' && 'Loading...'}
+          {stockStatus === 'error' && 'Unavailable'}
+          {stockStatus === 'idle' && robuxStock !== null ? `${robuxStock.toLocaleString()} R$` : 'Not loaded'}
+        </p>
+      </div>
+      <button
+        onClick={() => {
+          setStockStatus('loading');
+          fetch('https://pastebin.com/raw/Lfg5wnAE')
+            .then((res) => res.text())
+            .then((text) => {
+              const match = text.match(/\d+/g);
+              const parsed = match ? parseInt(match.join(''), 10) : null;
+              if (parsed !== null) {
+                setRobuxStock(parsed);
+                setStockStatus('idle');
+              } else {
+                setStockStatus('error');
+              }
+            })
+            .catch(() => setStockStatus('error'));
+        }}
+        className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500"
+      >
+        Refresh Stock
+      </button>
+    </div>
+  );
+
   const renderCrates = () => (
     <div className="space-y-8">
+      {renderRobuxStock()}
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold text-white">Crate Opening</h2>
         <div className="flex items-center gap-4">
@@ -367,34 +415,8 @@ export default function App() {
     </div>
   );
 
-  const renderMines = () => (
-    <div className="bg-[#111114] p-8 rounded-2xl border border-[#222]">
-      <h2 className="text-3xl font-bold text-white mb-6">Mines</h2>
-      <div className="grid grid-cols-5 gap-3 max-w-md mx-auto mb-8">
-        {Array(25).fill(null).map((_, i) => (
-          <button
-            key={i}
-            className="aspect-square rounded-xl bg-[#16161a] border border-[#1f1f23] hover:border-indigo-500/50 flex items-center justify-center text-2xl transition-all"
-            onClick={() => {
-              // 70% chance of bomb
-              const isBomb = Math.random() < 0.7;
-              if (isBomb) {
-                alert('💣 You hit a bomb! Game over.');
-              } else {
-                alert('💎 You found a gem! Continue...');
-              }
-            }}
-          >
-            ?
-          </button>
-        ))}
-      </div>
-      <div className="text-center">
-        <button className="bg-indigo-600 px-8 py-3 rounded-xl font-bold text-lg hover:bg-indigo-500">
-          Start Game
-        </button>
-      </div>
-    </div>
+    const renderMines = () => (
+    <Mines />
   );
 
   const renderWithdraw = () => (
