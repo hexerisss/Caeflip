@@ -14,9 +14,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-token'
 };
 
-export const config = {
-  runtime: 'nodejs-18.x'
-};
+// Runtime managed by Vercel defaults
 
 export default async function handler(req, res) {
   // CORS preflight
