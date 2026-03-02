@@ -6,7 +6,7 @@ import { Globe, LogOut, Settings, Gift, Wallet, Trophy, Grid3x3, Package, Users 
 import confetti from 'canvas-confetti';
 import axios from 'axios';
 
-const API_URL = '';
+const API_URL = '/api';
 
 // Items data
 const ITEMS = [
