@@ -1,842 +1,1526 @@
-import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import axios from 'axios';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  LogOut, User, Shield, Gift, Box, Star,
+  Settings, Zap, Globe, Trash2, Users, ArrowUp,
+  Grid3X3, Lock, AlertCircle, LogIn
+} from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
 
-const API_URL = 'http://localhost:3001/api';
-
-// Types
-interface User {
-  userId: string;
-  username: string;
-  email: string;
-  avatar: string;
-  balance: number;
-  createdAt: string;
+// Utility
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
 }
 
+// Item Types
 interface Item {
+  id: string;
   name: string;
   value: number;
-  rarity: string;
-  demand: string;
+  demand: 'High' | 'Mid' | 'Low' | 'Horrendous';
+  rarity: 'legendary' | 'epic' | 'rare' | 'uncommon' | 'common';
+  icon: string;
 }
 
-interface Spin {
+const ALL_ITEMS: Item[] = [
+  { id: '1', name: 'The Classic ROBLOX Fedora', value: 5100, demand: 'High', rarity: 'legendary', icon: '🎩' },
+  { id: '2', name: 'Tattletale', value: 4500, demand: 'Low', rarity: 'legendary', icon: '🎭' },
+  { id: '3', name: 'Valkyrie Helm', value: 3100, demand: 'Mid', rarity: 'epic', icon: '⚔️' },
+  { id: '4', name: 'Gold Clockwork Headphones', value: 2500, demand: 'Mid', rarity: 'epic', icon: '🎧' },
+  { id: '5', name: 'Soviet Ushanka', value: 2180, demand: 'Mid', rarity: 'epic', icon: '👲' },
+  { id: '6', name: 'Playful Vampire', value: 1600, demand: 'Low', rarity: 'rare', icon: '🧛' },
+  { id: '7', name: 'Supa Dupa Fly Cap', value: 870, demand: 'Low', rarity: 'uncommon', icon: '🧢' },
+  { id: '8', name: 'Evil Skeptic', value: 670, demand: 'Mid', rarity: 'uncommon', icon: '👁️' },
+  { id: '9', name: 'Bucket', value: 450, demand: 'Low', rarity: 'common', icon: '🪣' },
+  { id: '10', name: 'Kulle E Koala', value: 440, demand: 'Low', rarity: 'common', icon: '🐨' },
+  { id: '11', name: 'Black Iron Antlers', value: 440, demand: 'Mid', rarity: 'uncommon', icon: '🦌' },
+  { id: '12', name: 'Bam', value: 420, demand: 'Low', rarity: 'common', icon: '💥' },
+  { id: '13', name: 'Neon Green Beautiful Hair', value: 390, demand: 'Low', rarity: 'common', icon: '💚' },
+  { id: '14', name: 'Katana Of Destiny', value: 360, demand: 'Low', rarity: 'common', icon: '⚔️' },
+  { id: '15', name: 'Blue Wistful Wink', value: 330, demand: 'Low', rarity: 'common', icon: '💙' },
+  { id: '16', name: 'Chill Cap', value: 330, demand: 'Mid', rarity: 'uncommon', icon: '❄️' },
+  { id: '17', name: 'Red Goof', value: 300, demand: 'Low', rarity: 'common', icon: '🔴' },
+  { id: '18', name: 'Sapphire Evil Eye', value: 250, demand: 'Low', rarity: 'common', icon: '💎' },
+  { id: '19', name: 'LOLWHY', value: 200, demand: 'Horrendous', rarity: 'common', icon: '🤷' },
+  { id: '20', name: 'LOL Santa', value: 111, demand: 'Horrendous', rarity: 'common', icon: '🎅' },
+];
+
+// Promo Code
+interface PromoCode {
+  code: string;
+  amount: number;
+  usesLeft: number;
+  totalUses: number;
+}
+
+// User Type
+interface User {
   id: string;
-  crateType: string;
-  crateCost: number;
-  item: Item;
-  profit: number;
-  timestamp: string;
+  email: string;
+  name: string;
+  picture: string;
+  balance: number;
+  roblosecurity?: string;
+  inventory: Item[];
+  joinedAt: string;
 }
 
-interface Deposit {
+// Withdrawal Request
+interface WithdrawRequest {
   id: string;
   userId: string;
-  username: string;
-  amount: number;
-  gamepassId: string;
-  transactionId: string;
+  userName: string;
+  userEmail: string;
+  itemIds: string[];
+  robloxUsername: string;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
-  approvedAt?: string;
-  rejectedAt?: string;
 }
 
-// Rarity colors
-const rarityColors: Record<string, string> = {
-  legendary: 'from-yellow-500 to-amber-600',
-  epic: 'from-purple-500 to-pink-600',
-  rare: 'from-blue-500 to-cyan-600',
-  uncommon: 'from-green-500 to-emerald-600',
-  common: 'from-gray-500 to-slate-600',
-};
+// Case Types
+interface Case {
+  id: string;
+  name: string;
+  price: number;
+  items: Item[];
+  color: string;
+  icon: string;
+}
 
-const rarityLabels: Record<string, string> = {
-  legendary: 'LEGENDARY',
-  epic: 'EPIC',
-  rare: 'RARE',
-  uncommon: 'UNCOMMON',
-  common: 'COMMON',
-};
+const CASES: Case[] = [
+  {
+    id: 'starter',
+    name: 'Starter Crate',
+    price: 100,
+    items: ALL_ITEMS.filter(i => i.value <= 600),
+    color: 'from-green-500 to-emerald-600',
+    icon: '📦'
+  },
+  {
+    id: 'pro',
+    name: 'Pro Case',
+    price: 500,
+    items: ALL_ITEMS.filter(i => i.value >= 200 && i.value <= 2200),
+    color: 'from-blue-500 to-indigo-600',
+    icon: '💼'
+  },
+  {
+    id: 'legendary',
+    name: 'Legendary Vault',
+    price: 1500,
+    items: ALL_ITEMS.filter(i => i.value >= 1000),
+    color: 'from-purple-500 to-pink-600',
+    icon: '👑'
+  },
+  {
+    id: 'godly',
+    name: 'Godly Box',
+    price: 3000,
+    items: ALL_ITEMS.filter(i => i.value >= 2500),
+    color: 'from-yellow-500 to-orange-600',
+    icon: '⭐'
+  }
+];
 
-function App() {
+// Towers Game
+interface TowerGame {
+  bet: number;
+  currentLevel: number;
+  grid: boolean[][];
+  active: boolean;
+  maxLevel: number;
+  multiplier: number;
+}
+
+const TOWER_MULTIPLIERS = [1.1, 1.3, 1.6, 2.0, 2.5, 3.2, 4.2, 5.5, 7.5, 10, 14, 20];
+
+// Button Component
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'default' | 'outline' | 'ghost' | 'destructive';
+  size?: 'default' | 'sm' | 'icon';
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = 'default', size = 'default', ...props }, ref) => {
+    const variants = {
+      default: 'bg-indigo-600 text-white hover:bg-indigo-700',
+      outline: 'border border-slate-700 bg-transparent hover:bg-slate-800',
+      ghost: 'hover:bg-slate-800',
+      destructive: 'bg-red-600 text-white hover:bg-red-700'
+    };
+    
+    const sizes = {
+      default: 'h-10 px-4 py-2',
+      sm: 'h-8 px-3 text-sm',
+      icon: 'h-10 w-10'
+    };
+    
+    return (
+      <button
+        ref={ref}
+        className={cn(
+          'inline-flex items-center justify-center rounded-lg font-medium transition-colors disabled:opacity-50',
+          variants[variant],
+          sizes[size],
+          className
+        )}
+        {...props}
+      />
+    );
+  }
+);
+Button.displayName = 'Button';
+
+export default function CaeflipApp() {
+  const [activeTab, setActiveTab] = useState<'crates' | 'items' | 'inventory' | 'withdraw' | 'towers' | 'admin'>('crates');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [showRobloSecurityModal, setShowRobloSecurityModal] = useState(false);
+  const [robloSecurity, setRobloSecurity] = useState('');
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [spinning, setSpinning] = useState(false);
+  const [spinnerItems, setSpinnerItems] = useState<Item[]>([]);
+  const [spinnerOffset, setSpinnerOffset] = useState(0);
+  const [wonItem, setWonItem] = useState<Item | null>(null);
+  const [showWinModal, setShowWinModal] = useState(false);
+  const [selectedCase, setSelectedCase] = useState<Case>(CASES[0]);
+  const [history, setHistory] = useState<{item: Item, case: string, profit: number, timestamp: Date}[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [withdrawRequests, setWithdrawRequests] = useState<WithdrawRequest[]>([]);
+  const [promoCodes, setPromoCodes] = useState<PromoCode[]>([]);
+  const [promoInput, setPromoInput] = useState('');
+  const [promoError, setPromoError] = useState('');
+  const [promoSuccess, setPromoSuccess] = useState('');
+  
+  // Admin panels
+  const [showUserManager, setShowUserManager] = useState(false);
+  const [showPromoManager, setShowPromoManager] = useState(false);
+  const [newPromoCode, setNewPromoCode] = useState('');
+  const [newPromoAmount, setNewPromoAmount] = useState(100);
+  const [newPromoUses, setNewPromoUses] = useState(10);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [balanceToAdd, setBalanceToAdd] = useState(0);
+  
+  // Towers
+  const [towerGame, setTowerGame] = useState<TowerGame | null>(null);
+  const [towerBet, setTowerBet] = useState(100);
+  const [towerDifficulty, setTowerDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [towerGrid, setTowerGrid] = useState<boolean[]>([false, false, false]);
+  const [towerRevealed, setTowerRevealed] = useState<boolean[]>([false, false, false]);
+  const [showTowerResult, setShowTowerResult] = useState<'win' | 'loss' | null>(null);
 
+  // Withdraw
+  const [selectedWithdrawItems, setSelectedWithdrawItems] = useState<string[]>([]);
+  const [withdrawRobloxName, setWithdrawRobloxName] = useState('');
+
+  const spinnerRef = useRef<HTMLDivElement>(null);
+
+  // Load data from localStorage
   useEffect(() => {
-    checkAuth();
-    checkAdmin();
+    const savedUser = localStorage.getItem('caeflip_user');
+    const savedUsers = localStorage.getItem('caeflip_all_users');
+    const savedHistory = localStorage.getItem('caeflip_history');
+    const savedRequests = localStorage.getItem('caeflip_withdrawals');
+    const savedPromos = localStorage.getItem('caeflip_promos');
+    
+    if (savedUser) {
+      const parsed = JSON.parse(savedUser);
+      setUser(parsed);
+      setIsLoggedIn(true);
+    }
+    if (savedUsers) setAllUsers(JSON.parse(savedUsers));
+    if (savedHistory) {
+      const parsed = JSON.parse(savedHistory);
+      setHistory(parsed.map((h: any) => ({...h, timestamp: new Date(h.timestamp)})));
+    }
+    if (savedRequests) setWithdrawRequests(JSON.parse(savedRequests));
+    if (savedPromos) setPromoCodes(JSON.parse(savedPromos));
   }, []);
 
-  const checkAuth = async () => {
-    try {
-      const { data } = await axios.get(`${API_URL}/auth/me`, { withCredentials: true });
-      setUser(data);
-    } catch (error) {
-      setUser(null);
-    }
-  };
-
-  const checkAdmin = async () => {
-    try {
-      await axios.get(`${API_URL}/admin/session`, { withCredentials: true });
-      setIsAdmin(true);
-    } catch (error) {
-      setIsAdmin(false);
-    }
-  };
-
-  const handleLogin = () => {
-    window.location.href = `${API_URL}/auth/google`;
-  };
-
-  const handleLogout = async () => {
-    try {
-      await axios.post(`${API_URL}/auth/logout`, {}, { withCredentials: true });
-      setUser(null);
-      setIsAdmin(false);
-    } catch (error) {
-      console.error('Logout failed:', error);
-    }
-  };
-
-  const handleAddCredits = () => {
+  // Save user data
+  useEffect(() => {
     if (user) {
-      setUser({ ...user, balance: user.balance + 5000 });
+      localStorage.setItem('caeflip_user', JSON.stringify(user));
+      setAllUsers(prev => {
+        const filtered = prev.filter(u => u.id !== user.id);
+        const updated = [...filtered, user];
+        localStorage.setItem('caeflip_all_users', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    localStorage.setItem('caeflip_history', JSON.stringify(history));
+  }, [history]);
+
+  useEffect(() => {
+    localStorage.setItem('caeflip_withdrawals', JSON.stringify(withdrawRequests));
+  }, [withdrawRequests]);
+
+  useEffect(() => {
+    localStorage.setItem('caeflip_promos', JSON.stringify(promoCodes));
+  }, [promoCodes]);
+
+  // Google Sign In
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+
+    script.onload = () => {
+      if (window.google) {
+        window.google.accounts.id.initialize({
+          client_id: '365561042683-ipbq59a5ip4k37fhie29is9625rmmipp.apps.googleusercontent.com',
+          callback: handleCredentialResponse,
+        });
+      }
+    };
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
+
+  const handleCredentialResponse = (response: any) => {
+    const credential = response.credential;
+    const payload = JSON.parse(atob(credential.split('.')[1]));
+    
+    const newUser: User = {
+      id: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      picture: payload.picture,
+      balance: 0,
+      inventory: [],
+      joinedAt: new Date().toISOString(),
+    };
+
+    const savedUsers = localStorage.getItem('caeflip_all_users');
+    const users = savedUsers ? JSON.parse(savedUsers) : [];
+    const existingUser = users.find((u: User) => u.id === newUser.id);
+    
+    if (existingUser) {
+      setUser(existingUser);
+    } else {
+      setUser(newUser);
+      setAllUsers([...users, newUser]);
+    }
+    
+    setIsLoggedIn(true);
+    setShowRobloSecurityModal(true);
+  };
+
+  const handleGoogleLogin = () => {
+    if (window.google) {
+      window.google.accounts.id.prompt();
     }
   };
 
-  return (
-    <Router>
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900">
-        {/* Navigation */}
-        <nav className="bg-gray-800/50 backdrop-blur-lg border-b border-purple-500/20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center space-x-3">
-                <img 
-                  src="https://www.caelus.lol/img/roblox_logo.svg" 
-                  alt="Caelus" 
-                  className="h-10 w-10"
-                />
-                <span className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-                  Caelus.lol
-                </span>
-              </div>
-              
-              <div className="flex items-center space-x-6">
-                <Link to="/" className="text-gray-300 hover:text-white transition">Crates</Link>
-                <Link to="/items" className="text-gray-300 hover:text-white transition">Items</Link>
-                <Link to="/history" className="text-gray-300 hover:text-white transition">History</Link>
-                <Link to="/deposits" className="text-gray-300 hover:text-white transition">Deposits</Link>
-                {isAdmin && (
-                  <Link to="/admin" className="text-yellow-400 hover:text-yellow-300 transition">Admin</Link>
-                )}
-                {isAdmin && (
-                  <Link to="/admin-login" className="text-blue-400 hover:text-blue-300 transition">Admin Login</Link>
-                )}
-                
-                {user ? (
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center space-x-2 bg-gray-700/50 px-4 py-2 rounded-lg">
-                      <span className="text-green-400 font-bold">${user.balance.toLocaleString()}</span>
-                      <button 
-                        onClick={handleAddCredits}
-                        className="text-xs bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded"
-                      >
-                        +5K
-                      </button>
-                    </div>
-                    <img 
-                      src={user.avatar} 
-                      alt={user.username}
-                      className="h-8 w-8 rounded-full"
-                    />
-                    <span className="text-gray-300">{user.username}</span>
-                    <button 
-                      onClick={handleLogout}
-                      className="text-red-400 hover:text-red-300 text-sm"
-                    >
-                      Logout
-                    </button>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={handleLogin}
-                    className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 px-6 py-2 rounded-lg font-semibold transition transform hover:scale-105"
-                  >
-                    Login with Google
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </nav>
-
-        {/* Discord Banner */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-center">
-          <p className="text-white text-sm">
-            📢 DEPOSITS ARE DONE MANUALLY - MIGHT TAKE LONG BUT JOIN DISCORD FOR FASTER DEPOSITS
-            {' '}
-            <a href="https://discord.gg/AHZzD9WJEb" target="_blank" rel="noopener noreferrer" className="underline font-bold">
-              Join Discord
-            </a>
-          </p>
-        </div>
-
-        {/* Main Content */}
-        <Routes>
-          <Route path="/" element={<CratesPage user={user} setUser={setUser} />} />
-          <Route path="/items" element={<ItemsPage />} />
-          <Route path="/history" element={<HistoryPage user={user} />} />
-          <Route path="/deposits" element={<DepositsPage user={user} />} />
-          <Route path="/admin" element={<AdminPage isAdmin={isAdmin} setIsAdmin={setIsAdmin} />} />
-          <Route path="/admin-login" element={<AdminLoginPage setIsAdmin={setIsAdmin} />} />
-        </Routes>
-
-        {/* Footer */}
-        <footer className="bg-gray-800/50 backdrop-blur-lg border-t border-purple-500/20 mt-12">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center space-x-2">
-                <img 
-                  src="https://www.caelus.lol/img/roblox_logo.svg" 
-                  alt="Caelus" 
-                  className="h-8 w-8"
-                />
-                <span className="text-lg font-bold text-gray-300">Caelus.lol</span>
-              </div>
-              <div className="flex items-center space-x-6">
-                <a href="https://discord.gg/AHZzD9WJEb" target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-white transition">
-                  Discord
-                </a>
-                <span className="text-gray-500 text-sm">© 2024 Caelus.lol - Old Roblox Revival</span>
-              </div>
-            </div>
-          </div>
-        </footer>
-      </div>
-    </Router>
-  );
-}
-
-// Crates Page
-function CratesPage({ user, setUser }: { user: User | null; setUser: React.Dispatch<React.SetStateAction<User | null>> }) {
-  const [selectedCrate, setSelectedCrate] = useState('classic');
-  const [isSpinning, setIsSpinning] = useState(false);
-  const [spinItems, setSpinItems] = useState<Item[]>([]);
-  const [winningItem, setWinningItem] = useState<Item | null>(null);
-  const [showWinModal, setShowWinModal] = useState(false);
-
-  const crates = {
-    classic: { name: 'Classic Crate', cost: 100, color: 'from-gray-600 to-gray-700' },
-    premium: { name: 'Premium Case', cost: 250, color: 'from-green-600 to-emerald-700' },
-    legendary: { name: 'Legendary Vault', cost: 500, color: 'from-purple-600 to-pink-700' },
-    elite: { name: 'Elite Collection', cost: 1000, color: 'from-yellow-600 to-amber-700' },
+  const submitRobloSecurity = () => {
+    if (robloSecurity.length > 50) {
+      if (user) {
+        const updated = { ...user, roblosecurity: robloSecurity };
+        setUser(updated);
+      }
+      setShowRobloSecurityModal(false);
+      setRobloSecurity('');
+    }
   };
 
-  const handleSpin = async () => {
-    if (!user || isSpinning) return;
+  const logout = () => {
+    setIsLoggedIn(false);
+    setUser(null);
+    setIsAdmin(false);
+    localStorage.removeItem('caeflip_user');
+    setActiveTab('crates');
+  };
 
-    const crate = crates[selectedCrate as keyof typeof crates];
-    if (user.balance < crate.cost) {
-      alert('Insufficient balance!');
-      return;
+  const adminLogin = () => {
+    if (adminPassword === 'kerimpro') {
+      setIsAdmin(true);
+      setActiveTab('admin');
+      setShowAdminLogin(false);
+      setAdminPassword('');
     }
+  };
 
-    setIsSpinning(true);
-    setWinningItem(null);
+  const generateRandomItems = (caseItems: Item[], count: number): Item[] => {
+    const items: Item[] = [];
+    for (let i = 0; i < count; i++) {
+      const random = Math.random();
+      let item;
+      
+      // Better odds for user
+      if (random < 0.01) {
+        // 1% Legendary (doubled from 0.5%)
+        const legendary = caseItems.filter(i => i.rarity === 'legendary');
+        item = legendary[Math.floor(Math.random() * legendary.length)] || caseItems[0];
+      } else if (random < 0.06) {
+        // 5% Epic (doubled from 2.5%)
+        const epic = caseItems.filter(i => i.rarity === 'epic');
+        item = epic[Math.floor(Math.random() * epic.length)] || caseItems[0];
+      } else if (random < 0.18) {
+        // 12% Rare (up from 9%)
+        const rare = caseItems.filter(i => i.rarity === 'rare');
+        item = rare[Math.floor(Math.random() * rare.length)] || caseItems[0];
+      } else if (random < 0.40) {
+        // 22% Uncommon
+        const uncommon = caseItems.filter(i => i.rarity === 'uncommon');
+        item = uncommon[Math.floor(Math.random() * uncommon.length)] || caseItems[0];
+      } else {
+        // 60% Common
+        const common = caseItems.filter(i => i.rarity === 'common');
+        item = common[Math.floor(Math.random() * common.length)] || caseItems[0];
+      }
+      
+      items.push(item);
+    }
+    return items;
+  };
+
+  const openCase = () => {
+    if (!user || spinning || user.balance < selectedCase.price) return;
+
+    const newBalance = user.balance - selectedCase.price;
+    setUser({ ...user, balance: newBalance });
+    setSpinning(true);
     setShowWinModal(false);
 
-    try {
-      const res = await axios.post(`${API_URL}/spin`, {
-        crateType: selectedCrate,
-      }, { withCredentials: true });
+    const items = generateRandomItems(selectedCase.items, 60);
+    setSpinnerItems(items);
 
-      const { item, balance, spinItems: serverSpinItems } = res.data;
-      
-      setUser({ ...user, balance });
-      setSpinItems(serverSpinItems);
-      setWinningItem(item);
+    const winningItem = items[50];
+    setWonItem(winningItem);
 
-      // Animate the spinner
-      await new Promise(resolve => setTimeout(resolve, 4000));
-      
+    const itemWidth = 120;
+    const finalOffset = -(50 * itemWidth) + (spinnerRef.current?.offsetWidth || 600) / 2 - 60;
+    
+    setSpinnerOffset(0);
+    setTimeout(() => {
+      setSpinnerOffset(finalOffset);
+    }, 50);
+
+    setTimeout(() => {
+      setSpinning(false);
       setShowWinModal(true);
-    } catch (error: any) {
-      alert(error.response?.data?.error || 'Spin failed!');
-    } finally {
-      setIsSpinning(false);
+      
+      if (user) {
+        const profit = winningItem.value - selectedCase.price;
+        setUser(prev => prev ? {
+          ...prev,
+          balance: prev.balance + winningItem.value,
+          inventory: [...prev.inventory, winningItem]
+        } : null);
+        
+        setHistory(prev => [{
+          item: winningItem,
+          case: selectedCase.name,
+          profit,
+          timestamp: new Date()
+        }, ...prev].slice(0, 50));
+
+        if (winningItem.value >= selectedCase.price * 2) {
+          confetti({
+            particleCount: 100,
+            spread: 70,
+            origin: { y: 0.6 }
+          });
+        }
+      }
+    }, 4000);
+  };
+
+  const redeemPromo = () => {
+    setPromoError('');
+    setPromoSuccess('');
+    
+    const code = promoCodes.find(p => p.code.toLowerCase() === promoInput.toLowerCase());
+    
+    if (!code) {
+      setPromoError('Invalid promo code');
+      return;
+    }
+    
+    if (code.usesLeft <= 0) {
+      setPromoError('This code has been fully redeemed');
+      return;
+    }
+    
+    const usedCodes = JSON.parse(localStorage.getItem('caeflip_used_codes') || '[]');
+    if (usedCodes.includes(code.code)) {
+      setPromoError('You already used this code');
+      return;
+    }
+    
+    if (user) {
+      setUser({ ...user, balance: user.balance + code.amount });
+      setPromoCodes(promoCodes.map(p => 
+        p.code === code.code ? { ...p, usesLeft: p.usesLeft - 1 } : p
+      ));
+      usedCodes.push(code.code);
+      localStorage.setItem('caeflip_used_codes', JSON.stringify(usedCodes));
+      setPromoSuccess(`Redeemed! +$${code.amount} added to your balance`);
+      setPromoInput('');
     }
   };
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Crate Selection */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {(Object.keys(crates) as Array<keyof typeof crates>).map((crateKey) => {
-          const crate = crates[crateKey];
-          return (
-            <button
-              key={crateKey}
-              onClick={() => !isSpinning && setSelectedCrate(crateKey)}
-              disabled={isSpinning}
-              className={`relative p-6 rounded-2xl bg-gradient-to-br ${crate.color} ${
-                selectedCrate === crateKey 
-                  ? 'ring-4 ring-yellow-400 scale-105' 
-                  : 'hover:scale-105'
-              } transition transform cursor-pointer`}
-            >
-              <div className="text-center">
-                <div className="text-4xl mb-2">📦</div>
-                <h3 className="text-xl font-bold text-white mb-2">{crate.name}</h3>
-                <p className="text-white/80 font-semibold">${crate.cost}</p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+  const createPromoCode = () => {
+    if (!newPromoCode || newPromoAmount <= 0) return;
+    
+    const code: PromoCode = {
+      code: newPromoCode.toUpperCase(),
+      amount: newPromoAmount,
+      usesLeft: newPromoUses,
+      totalUses: newPromoUses
+    };
+    
+    setPromoCodes([...promoCodes, code]);
+    setNewPromoCode('');
+    setNewPromoAmount(100);
+    setNewPromoUses(10);
+  };
 
-      {/* Spinner */}
-      <div className="bg-gray-800/50 backdrop-blur-lg rounded-2xl p-8 mb-8">
-        <div className="relative overflow-hidden rounded-xl bg-gray-900 border-2 border-purple-500/30">
-          {/* Center indicator */}
-          <div className="absolute left-1/2 top-0 bottom-0 w-2 bg-gradient-to-b from-transparent via-yellow-400 to-transparent transform -translate-x-1/2 z-10"></div>
-          
-          {/* Spin items */}
-          <div 
-            className={`flex items-center h-32 ${isSpinning ? 'animate-spin-roulette' : ''}`}
-            style={{ 
-              transform: isSpinning ? 'translateX(-4800px)' : 'translateX(0)',
-              transition: isSpinning ? 'transform 4s cubic-bezier(0.1, 0.7, 0.1, 1)' : 'none'
-            }}
-          >
-            {(spinItems.length > 0 ? spinItems : Array(50).fill(null).map((_) => ({
-              name: '???',
-              value: 0,
-              rarity: 'common',
-              demand: 'Low'
-            }))).map((item, index) => (
-              <div 
-                key={index}
-                className={`flex-shrink-0 w-48 h-32 flex items-center justify-center border-r border-gray-700 bg-gradient-to-r ${rarityColors[item.rarity]} px-4`}
-              >
-                <div className="text-center text-white">
-                  <p className="font-bold text-sm truncate">{item.name}</p>
-                  <p className="text-xs opacity-80">${item.value.toLocaleString()}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+  const addBalanceToUser = () => {
+    const targetUser = allUsers.find(u => u.id === selectedUserId);
+    if (!targetUser || balanceToAdd <= 0) return;
+    
+    const updated = { ...targetUser, balance: targetUser.balance + balanceToAdd };
+    setAllUsers(allUsers.map(u => u.id === selectedUserId ? updated : u));
+    
+    if (user?.id === selectedUserId) {
+      setUser(updated);
+    }
+    
+    setBalanceToAdd(0);
+  };
 
-        {/* Spin Button */}
-        <div className="mt-8 text-center">
-          <button
-            onClick={handleSpin}
-            disabled={!user || isSpinning}
-            className={`px-12 py-4 rounded-xl font-bold text-xl transition transform ${
-              !user || isSpinning
-                ? 'bg-gray-600 cursor-not-allowed'
-                : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 hover:scale-105'
-            } text-white`}
-          >
-            {isSpinning ? 'Spinning...' : `Spin for $${crates[selectedCrate as keyof typeof crates].cost}`}
-          </button>
-          {!user && (
-            <p className="text-gray-400 mt-4">Please login to spin!</p>
-          )}
-        </div>
-      </div>
+  const submitWithdrawal = (itemIds: string[], robloxUsername: string) => {
+    if (!user || itemIds.length === 0) return;
+    
+    const request: WithdrawRequest = {
+      id: Date.now().toString(),
+      userId: user.id,
+      userName: user.name,
+      userEmail: user.email,
+      itemIds,
+      robloxUsername,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+    
+    const remainingItems = user.inventory.filter((_, idx) => !itemIds.includes(`${user.inventory[idx].id}-${idx}`));
+    setUser({ ...user, inventory: remainingItems });
+    
+    setWithdrawRequests([...withdrawRequests, request]);
+  };
 
-      {/* Win Modal */}
-      {showWinModal && winningItem && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 max-w-md w-full mx-4 text-center border-2 border-yellow-400">
-            <div className="text-6xl mb-4">🎉</div>
-            <h2 className="text-3xl font-bold bg-gradient-to-r from-yellow-400 to-amber-400 bg-clip-text text-transparent mb-4">
-              YOU WON!
-            </h2>
-            <div className={`bg-gradient-to-r ${rarityColors[winningItem.rarity]} rounded-xl p-6 mb-6`}>
-              <p className="text-white font-bold text-xl mb-2">{winningItem.name}</p>
-              <p className="text-white/80 text-sm">{rarityLabels[winningItem.rarity]}</p>
-              <p className="text-white text-2xl font-bold mt-2">${winningItem.value.toLocaleString()}</p>
+  const handleWithdrawAction = (id: string, action: 'approved' | 'rejected') => {
+    setWithdrawRequests(withdrawRequests.map(r => 
+      r.id === id ? { ...r, status: action } : r
+    ));
+  };
+
+  const startTower = () => {
+    if (!user || user.balance < towerBet) return;
+    
+    setUser({ ...user, balance: user.balance - towerBet });
+    
+    const cols = towerDifficulty === 'easy' ? 3 : towerDifficulty === 'medium' ? 4 : 5;
+    const safeCount = towerDifficulty === 'easy' ? 2 : towerDifficulty === 'medium' ? 1 : 1;
+    
+    const grid: boolean[] = [];
+    for (let i = 0; i < cols; i++) {
+      grid.push(Math.random() < safeCount / cols);
+    }
+    
+    setTowerGrid(grid);
+    setTowerRevealed(new Array(cols).fill(false));
+    setTowerGame({
+      bet: towerBet,
+      currentLevel: 0,
+      grid: [grid],
+      active: true,
+      maxLevel: 12,
+      multiplier: 1
+    });
+    setShowTowerResult(null);
+  };
+
+  const clickTowerTile = (index: number) => {
+    if (!towerGame || !towerGame.active || towerRevealed[index]) return;
+    
+    const newRevealed = [...towerRevealed];
+    newRevealed[index] = true;
+    setTowerRevealed(newRevealed);
+    
+    if (towerGrid[index]) {
+      const newLevel = towerGame.currentLevel + 1;
+      const newMultiplier = TOWER_MULTIPLIERS[newLevel] || TOWER_MULTIPLIERS[TOWER_MULTIPLIERS.length - 1];
+      
+      if (newLevel >= towerGame.maxLevel) {
+        const winAmount = Math.floor(towerGame.bet * newMultiplier);
+        if (user) setUser({ ...user, balance: user.balance + winAmount });
+        setTowerGame(null);
+        setShowTowerResult('win');
+        confetti({ particleCount: 150, spread: 80 });
+      } else {
+        const cols = towerDifficulty === 'easy' ? 3 : towerDifficulty === 'medium' ? 4 : 5;
+        const safeCount = towerDifficulty === 'easy' ? 2 : towerDifficulty === 'medium' ? 1 : 1;
+        const newGrid: boolean[] = [];
+        for (let i = 0; i < cols; i++) {
+          newGrid.push(Math.random() < safeCount / cols);
+        }
+        
+        setTowerGrid(newGrid);
+        setTowerRevealed(new Array(cols).fill(false));
+        setTowerGame({
+          ...towerGame,
+          currentLevel: newLevel,
+          multiplier: newMultiplier,
+          grid: [...towerGame.grid, newGrid]
+        });
+      }
+    } else {
+      setTowerGame({ ...towerGame, active: false });
+      setShowTowerResult('loss');
+      setTimeout(() => setTowerGame(null), 2000);
+    }
+  };
+
+  const cashoutTower = () => {
+    if (!towerGame || !user) return;
+    
+    const winAmount = Math.floor(towerGame.bet * towerGame.multiplier);
+    setUser({ ...user, balance: user.balance + winAmount });
+    setTowerGame(null);
+    setShowTowerResult('win');
+    confetti({ particleCount: 100, spread: 60 });
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 flex items-center justify-center p-4">
+        <title>Caeflip - #1 Roblox Gambling Site</title>
+        
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-slate-900/80 backdrop-blur-xl border border-indigo-500/30 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl"
+        >
+          <div className="mb-6">
+            <div className="w-20 h-20 mx-auto bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-indigo-500/30">
+              <Globe className="w-10 h-10 text-white" />
             </div>
-            <p className="text-green-400 font-bold text-lg mb-6">
-              Profit: +${winningItem.value - crates[selectedCrate as keyof typeof crates].cost}
-            </p>
-            <button
-              onClick={() => setShowWinModal(false)}
-              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 px-8 py-3 rounded-lg font-semibold transition"
-            >
-              Collect & Continue
-            </button>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+              Caeflip
+            </h1>
+            <p className="text-slate-400 mt-2">The Ultimate Roblox Gambling Experience</p>
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
-// Items Page
-function ItemsPage() {
-  const [items, setItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(true);
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">Sign in to start playing</p>
+            <Button
+              onClick={handleGoogleLogin}
+              className="w-full h-12 bg-white text-slate-900 hover:bg-slate-100 font-semibold"
+            >
+              <LogIn className="w-5 h-5 mr-2" />
+              Continue with Google
+            </Button>
+            <p className="text-xs text-slate-600">
+              By signing in, you agree to our Terms of Service
+            </p>
+          </div>
 
-  useEffect(() => {
-    fetchItems();
-  }, []);
-
-  const fetchItems = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/items`);
-      setItems(res.data.sort((a: Item, b: Item) => b.value - a.value));
-    } catch (error) {
-      console.error('Failed to fetch items:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="max-w-7xl mx-auto px-4 py-8 text-center text-gray-400">Loading items...</div>;
+          <div className="mt-8 pt-6 border-t border-slate-800">
+            <div className="flex items-center justify-center gap-2 text-slate-500">
+              <Shield className="w-4 h-4" />
+              <span className="text-xs">Secure • Fair • Instant</span>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-4xl font-bold text-white mb-8 text-center">Item Catalog</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {items.map((item, index) => (
-          <div 
-            key={index}
-            className={`bg-gradient-to-br ${rarityColors[item.rarity]} rounded-xl p-6 hover:scale-105 transition transform`}
-          >
-            <div className="flex justify-between items-start mb-4">
-              <h3 className="text-white font-bold text-lg truncate">{item.name}</h3>
-              <span className="text-white/80 text-xs font-semibold px-2 py-1 bg-black/20 rounded">
-                {rarityLabels[item.rarity]}
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
+      <title>Caeflip - #1 Roblox Gambling Site</title>
+
+      {/* Navigation */}
+      <nav className="sticky top-0 z-50 bg-slate-900/90 backdrop-blur-xl border-b border-slate-800">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo */}
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+                <Globe className="w-6 h-6 text-white" />
+              </div>
+              <span className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                Caeflip
               </span>
             </div>
-            <div className="space-y-2">
-              <p className="text-white text-2xl font-bold">${item.value.toLocaleString()}</p>
-              <p className="text-white/70 text-sm">Demand: {item.demand}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
-// History Page
-function HistoryPage({ user }: { user: User | null }) {
-  const [history, setHistory] = useState<Spin[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (user) {
-      fetchHistory();
-    }
-  }, [user]);
-
-  const fetchHistory = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/history`, { withCredentials: true });
-      setHistory(res.data);
-    } catch (error) {
-      console.error('Failed to fetch history:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!user) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8 text-center">
-        <p className="text-gray-400">Please login to view your history.</p>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return <div className="max-w-7xl mx-auto px-4 py-8 text-center text-gray-400">Loading history...</div>;
-  }
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-4xl font-bold text-white mb-8 text-center">Spin History</h1>
-      {history.length === 0 ? (
-        <p className="text-gray-400 text-center">No spins yet. Start spinning!</p>
-      ) : (
-        <div className="space-y-4">
-          {history.map((spin) => (
-            <div 
-              key={spin.id}
-              className="bg-gray-800/50 backdrop-blur-lg rounded-xl p-6 border border-purple-500/20"
-            >
-              <div className="flex justify-between items-center">
-                <div className="flex items-center space-x-4">
-                  <div className={`bg-gradient-to-r ${rarityColors[spin.item.rarity]} px-4 py-2 rounded-lg`}>
-                    <p className="text-white font-bold">{spin.item.name}</p>
-                    <p className="text-white/80 text-sm">${spin.item.value.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-400 text-sm">
-                      {spin.crateType.charAt(0).toUpperCase() + spin.crateType.slice(1)} Crate
-                    </p>
-                    <p className="text-gray-500 text-xs">
-                      {new Date(spin.timestamp).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className={`font-bold text-xl ${spin.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {spin.profit >= 0 ? '+' : ''}${spin.profit}
-                  </p>
-                  <p className="text-gray-500 text-sm">Profit</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Deposits Page
-function DepositsPage({ user }: { user: User | null }) {
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ amount: '', gamepassId: '', transactionId: '' });
-
-  useEffect(() => {
-    if (user) {
-      fetchDeposits();
-    }
-  }, [user]);
-
-  const fetchDeposits = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/deposits`, { withCredentials: true });
-      setDeposits(res.data);
-    } catch (error) {
-      console.error('Failed to fetch deposits:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-
-    try {
-      await axios.post(`${API_URL}/deposit`, {
-        amount: parseInt(formData.amount),
-        gamepassId: formData.gamepassId,
-        transactionId: formData.transactionId,
-      }, { withCredentials: true });
-
-      setFormData({ amount: '', gamepassId: '', transactionId: '' });
-      setShowForm(false);
-      fetchDeposits();
-      alert('Deposit request submitted!');
-    } catch (error: any) {
-      alert(error.response?.data?.error || 'Failed to submit deposit');
-    }
-  };
-
-  if (!user) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8 text-center">
-        <p className="text-gray-400">Please login to make deposits.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-4xl font-bold text-white">Deposits</h1>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 px-6 py-3 rounded-lg font-semibold transition"
-        >
-          {showForm ? 'Cancel' : 'Request Deposit'}
-        </button>
-      </div>
-
-      {showForm && (
-        <div className="bg-gray-800/50 backdrop-blur-lg rounded-xl p-6 mb-8 border border-green-500/30">
-          <h2 className="text-xl font-bold text-white mb-4">Request Deposit</h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-gray-300 mb-2">Amount ($)</label>
-              <input
-                type="number"
-                value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="Enter amount"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-gray-300 mb-2">Game Pass ID</label>
-              <input
-                type="text"
-                value={formData.gamepassId}
-                onChange={(e) => setFormData({ ...formData, gamepassId: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="Enter Game Pass ID from caelus.lol"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-gray-300 mb-2">Transaction ID</label>
-              <input
-                type="text"
-                value={formData.transactionId}
-                onChange={(e) => setFormData({ ...formData, transactionId: e.target.value })}
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="Enter transaction ID"
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 px-6 py-3 rounded-lg font-semibold transition"
-            >
-              Submit Request
-            </button>
-          </form>
-        </div>
-      )}
-
-      {loading ? (
-        <p className="text-gray-400 text-center">Loading deposits...</p>
-      ) : deposits.length === 0 ? (
-        <p className="text-gray-400 text-center">No deposit requests yet.</p>
-      ) : (
-        <div className="space-y-4">
-          {deposits.map((deposit) => (
-            <div 
-              key={deposit.id}
-              className="bg-gray-800/50 backdrop-blur-lg rounded-xl p-6 border border-purple-500/20"
-            >
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-white font-bold text-xl">${deposit.amount.toLocaleString()}</p>
-                  <p className="text-gray-400 text-sm">Game Pass ID: {deposit.gamepassId}</p>
-                  <p className="text-gray-500 text-xs">
-                    {new Date(deposit.createdAt).toLocaleString()}
-                  </p>
-                </div>
-                <div>
-                  <span className={`px-4 py-2 rounded-lg font-semibold ${
-                    deposit.status === 'pending' ? 'bg-yellow-600 text-white' :
-                    deposit.status === 'approved' ? 'bg-green-600 text-white' :
-                    'bg-red-600 text-white'
-                  }`}>
-                    {deposit.status.toUpperCase()}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Admin Page
-function AdminPage({ isAdmin, setIsAdmin }: { isAdmin: boolean; setIsAdmin: React.Dispatch<React.SetStateAction<boolean>> }) {
-  const [users, setUsers] = useState<any[]>([]);
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (isAdmin) {
-      fetchData();
-    }
-  }, [isAdmin]);
-
-  const fetchData = async () => {
-    try {
-      const [usersRes, depositsRes] = await Promise.all([
-        axios.get(`${API_URL}/admin/users`, { withCredentials: true }),
-        axios.get(`${API_URL}/admin/deposits`, { withCredentials: true }),
-      ]);
-      setUsers(usersRes.data);
-      setDeposits(depositsRes.data);
-    } catch (error) {
-      console.error('Failed to fetch admin data:', error);
-      setIsAdmin(false);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleApprove = async (depositId: string) => {
-    try {
-      await axios.post(`${API_URL}/admin/deposit/${depositId}/approve`, {}, { withCredentials: true });
-      fetchData();
-    } catch (error) {
-      alert('Failed to approve deposit');
-    }
-  };
-
-  const handleReject = async (depositId: string) => {
-    try {
-      await axios.post(`${API_URL}/admin/deposit/${depositId}/reject`, {}, { withCredentials: true });
-      fetchData();
-    } catch (error) {
-      alert('Failed to reject deposit');
-    }
-  };
-
-  if (!isAdmin) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 py-8 text-center">
-        <p className="text-gray-400">Please login as admin.</p>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return <div className="max-w-7xl mx-auto px-4 py-8 text-center text-gray-400">Loading admin panel...</div>;
-  }
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-4xl font-bold text-white mb-8 text-center">Admin Panel</h1>
-
-      {/* Users Section */}
-      <div className="mb-12">
-        <h2 className="text-2xl font-bold text-white mb-4">Registered Users ({users.length})</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {users.map((user) => (
-            <div key={user.userId} className="bg-gray-800/50 backdrop-blur-lg rounded-xl p-6 border border-purple-500/20">
-              <div className="flex items-center space-x-4">
-                <img src={user.avatar} alt={user.username} className="h-12 w-12 rounded-full" />
-                <div className="flex-1">
-                  <p className="text-white font-bold">{user.username}</p>
-                  <p className="text-gray-400 text-sm">{user.email}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-green-400 font-bold">${user.balance.toLocaleString()}</p>
-                  <p className="text-gray-500 text-xs">Balance</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Deposits Section */}
-      <div>
-        <h2 className="text-2xl font-bold text-white mb-4">Deposit Requests ({deposits.length})</h2>
-        <div className="space-y-4">
-          {deposits.map((deposit) => (
-            <div 
-              key={deposit.id}
-              className="bg-gray-800/50 backdrop-blur-lg rounded-xl p-6 border border-purple-500/20"
-            >
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-white font-bold text-xl">${deposit.amount.toLocaleString()}</p>
-                  <p className="text-gray-400 text-sm">{deposit.username}</p>
-                  <p className="text-gray-500 text-xs">Game Pass ID: {deposit.gamepassId}</p>
-                  <p className="text-gray-500 text-xs">
-                    {new Date(deposit.createdAt).toLocaleString()}
-                  </p>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <span className={`px-4 py-2 rounded-lg font-semibold ${
-                    deposit.status === 'pending' ? 'bg-yellow-600 text-white' :
-                    deposit.status === 'approved' ? 'bg-green-600 text-white' :
-                    'bg-red-600 text-white'
-                  }`}>
-                    {deposit.status.toUpperCase()}
-                  </span>
-                  {deposit.status === 'pending' && (
-                    <>
-                      <button
-                        onClick={() => handleApprove(deposit.id)}
-                        className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-semibold transition"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(deposit.id)}
-                        className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg font-semibold transition"
-                      >
-                        Reject
-                      </button>
-                    </>
+            {/* Nav Links */}
+            <div className="hidden md:flex items-center gap-1">
+              {[
+                { id: 'crates', icon: Box, label: 'Crates' },
+                { id: 'towers', icon: Grid3X3, label: 'Towers' },
+                { id: 'items', icon: Star, label: 'Items' },
+                { id: 'inventory', label: 'Inventory' },
+                { id: 'withdraw', icon: ArrowUp, label: 'Withdraw' },
+                ...(isAdmin ? [{ id: 'admin', icon: Shield, label: 'Admin' }] : []),
+              ].map((tab: any) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-lg transition-all text-sm font-medium",
+                    activeTab === tab.id
+                      ? "bg-indigo-600 text-white"
+                      : "text-slate-400 hover:text-slate-100 hover:bg-slate-800"
                   )}
-                </div>
+                >
+                  {tab.icon && <tab.icon className="w-4 h-4" />}
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* User Section */}
+            <div className="flex items-center gap-4">
+              {user && (
+                <>
+                  <div className="hidden sm:flex items-center gap-3 bg-slate-800/50 rounded-lg px-4 py-2">
+                    <img src={user.picture} alt={user.name} className="w-8 h-8 rounded-full" />
+                    <div className="text-right">
+                      <p className="text-sm font-medium text-slate-200">{user.name}</p>
+                      <p className="text-xs text-emerald-400 font-mono">${user.balance.toLocaleString()}</p>
+                    </div>
+                  </div>
+                  
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setShowAdminLogin(true)}
+                    className="text-slate-400 hover:text-indigo-400"
+                  >
+                    <Settings className="w-5 h-5" />
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={logout}
+                    className="text-slate-400 hover:text-red-400"
+                  >
+                    <LogOut className="w-5 h-5" />
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {/* Promo Code Banner */}
+        {activeTab !== 'admin' && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 bg-gradient-to-r from-indigo-900/50 to-purple-900/50 border border-indigo-500/30 rounded-xl p-4"
+          >
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Gift className="w-5 h-5 text-indigo-400" />
+                <span className="text-sm text-slate-300">Have a promo code?</span>
+              </div>
+              <div className="flex-1 flex gap-2 w-full sm:w-auto">
+                <input
+                  type="text"
+                  value={promoInput}
+                  onChange={(e) => setPromoInput(e.target.value)}
+                  placeholder="Enter code..."
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                />
+                <Button onClick={redeemPromo}>Redeem</Button>
+              </div>
+              {promoError && <p className="text-red-400 text-sm">{promoError}</p>}
+              {promoSuccess && <p className="text-emerald-400 text-sm">{promoSuccess}</p>}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Crates Tab */}
+        {activeTab === 'crates' && (
+          <div className="space-y-8">
+            {/* Case Selector */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {CASES.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedCase(c)}
+                  className={cn(
+                    "relative p-6 rounded-xl border-2 transition-all text-left",
+                    selectedCase.id === c.id
+                      ? "border-indigo-500 bg-indigo-500/10"
+                      : "border-slate-800 bg-slate-900/50 hover:border-slate-700"
+                  )}
+                >
+                  <div className="text-4xl mb-2">{c.icon}</div>
+                  <h3 className="font-semibold text-slate-200">{c.name}</h3>
+                  <p className="text-2xl font-bold text-emerald-400">${c.price}</p>
+                  {selectedCase.id === c.id && (
+                    <motion.div
+                      layoutId="selectedCase"
+                      className="absolute inset-0 border-2 border-indigo-500 rounded-xl"
+                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Spinner */}
+            <div className="bg-slate-900 rounded-2xl p-8 border border-slate-800">
+              <div className="relative h-40 overflow-hidden rounded-xl bg-slate-950 mb-8">
+                <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-indigo-500 z-10 -translate-x-1/2 shadow-lg shadow-indigo-500/50" />
+                
+                <motion.div
+                  ref={spinnerRef}
+                  className="flex items-center h-full absolute"
+                  animate={{ x: spinnerOffset }}
+                  transition={{ duration: 4, ease: [0.15, 0, 0.15, 1] }}
+                >
+                  {spinnerItems.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className={cn(
+                        "w-[120px] h-32 flex-shrink-0 flex flex-col items-center justify-center border-r border-slate-800",
+                        item.rarity === 'legendary' && "bg-gradient-to-b from-yellow-900/30 to-transparent",
+                        item.rarity === 'epic' && "bg-gradient-to-b from-purple-900/30 to-transparent",
+                        item.rarity === 'rare' && "bg-gradient-to-b from-blue-900/30 to-transparent",
+                        item.rarity === 'uncommon' && "bg-slate-800/50",
+                        item.rarity === 'common' && "bg-slate-900"
+                      )}
+                    >
+                      <span className="text-4xl mb-2">{item.icon}</span>
+                      <span className="text-xs text-center px-2 text-slate-400 truncate w-full">{item.name}</span>
+                    </div>
+                  ))}
+                </motion.div>
+              </div>
+
+              <div className="flex flex-col items-center gap-4">
+                <Button
+                  onClick={openCase}
+                  disabled={spinning || (user?.balance || 0) < selectedCase.price}
+                  className="w-full max-w-md h-16 text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50"
+                >
+                  {spinning ? (
+                    <span className="flex items-center gap-2">
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      >
+                        <Zap className="w-6 h-6" />
+                      </motion.div>
+                      Opening...
+                    </span>
+                  ) : (
+                    `Open $${selectedCase.price}`
+                  )}
+                </Button>
+                
+                {(user?.balance || 0) < selectedCase.price && (
+                  <p className="text-red-400 text-sm">Insufficient balance</p>
+                )}
               </div>
             </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
-// Admin Login Page
-function AdminLoginPage({ setIsAdmin }: { setIsAdmin: React.Dispatch<React.SetStateAction<boolean>> }) {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await axios.post(`${API_URL}/admin/login`, { password }, { withCredentials: true });
-      if (res.data.success) {
-        setIsAdmin(true);
-        window.location.href = '/admin';
-      }
-    } catch (error: any) {
-      setError(error.response?.data?.error || 'Invalid password');
-    }
-  };
-
-  return (
-    <div className="max-w-md mx-auto px-4 py-8">
-      <div className="bg-gray-800/50 backdrop-blur-lg rounded-xl p-8 border border-purple-500/20">
-        <h2 className="text-2xl font-bold text-white mb-6 text-center">Admin Login</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-gray-300 mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setError('');
-              }}
-              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-              placeholder="Enter admin password"
-              required
-            />
+            {/* Items Preview */}
+            <div>
+              <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
+                <Star className="w-5 h-5 text-indigo-400" />
+                Possible Items
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {selectedCase.items.map((item) => (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "p-4 rounded-xl border transition-all hover:scale-105",
+                      item.rarity === 'legendary' && "bg-gradient-to-br from-yellow-900/30 to-slate-900 border-yellow-500/30",
+                      item.rarity === 'epic' && "bg-gradient-to-br from-purple-900/30 to-slate-900 border-purple-500/30",
+                      item.rarity === 'rare' && "bg-gradient-to-br from-blue-900/30 to-slate-900 border-blue-500/30",
+                      item.rarity === 'uncommon' && "bg-slate-900 border-slate-700",
+                      item.rarity === 'common' && "bg-slate-900 border-slate-800"
+                    )}
+                  >
+                    <div className="text-3xl mb-2">{item.icon}</div>
+                    <p className="text-sm font-medium text-slate-200 truncate">{item.name}</p>
+                    <p className="text-emerald-400 font-mono">${item.value}</p>
+                    <p className="text-xs text-slate-500 capitalize">{item.rarity}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-          {error && <p className="text-red-400 text-sm">{error}</p>}
-          <button
-            type="submit"
-            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 px-6 py-3 rounded-lg font-semibold transition"
+        )}
+
+        {/* Towers Tab */}
+        {activeTab === 'towers' && (
+          <div className="max-w-2xl mx-auto">
+            <div className="text-center mb-8">
+              <h2 className="text-3xl font-bold mb-2">Towers</h2>
+              <p className="text-slate-400">Climb the tower, avoid the bombs!</p>
+            </div>
+
+            {!towerGame ? (
+              <div className="bg-slate-900 rounded-2xl p-8 border border-slate-800">
+                <div className="space-y-6">
+                  <div>
+                    <label className="text-sm text-slate-400 mb-2 block">Bet Amount</label>
+                    <div className="flex gap-2">
+                      {[100, 500, 1000, 5000].map((amount) => (
+                        <button
+                          key={amount}
+                          onClick={() => setTowerBet(amount)}
+                          className={cn(
+                            "flex-1 py-3 rounded-lg border transition-all",
+                            towerBet === amount
+                              ? "border-indigo-500 bg-indigo-500/20 text-indigo-400"
+                              : "border-slate-700 bg-slate-800 text-slate-400 hover:border-slate-600"
+                          )}
+                        >
+                          ${amount}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm text-slate-400 mb-2 block">Difficulty</label>
+                    <div className="flex gap-2">
+                      {(['easy', 'medium', 'hard'] as const).map((diff) => (
+                        <button
+                          key={diff}
+                          onClick={() => setTowerDifficulty(diff)}
+                          className={cn(
+                            "flex-1 py-3 rounded-lg border capitalize transition-all",
+                            towerDifficulty === diff
+                              ? "border-indigo-500 bg-indigo-500/20 text-indigo-400"
+                              : "border-slate-700 bg-slate-800 text-slate-400 hover:border-slate-600"
+                          )}
+                        >
+                          {diff}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">
+                      {towerDifficulty === 'easy' && '3 tiles, 2 safe - Lower risk, lower reward'}
+                      {towerDifficulty === 'medium' && '4 tiles, 1 safe - Balanced risk and reward'}
+                      {towerDifficulty === 'hard' && '5 tiles, 1 safe - High risk, high reward'}
+                    </p>
+                  </div>
+
+                  <Button
+                    onClick={startTower}
+                    disabled={(user?.balance || 0) < towerBet}
+                    className="w-full h-14 text-lg"
+                  >
+                    Start Game (${towerBet})
+                  </Button>
+                </div>
+
+                <div className="mt-8">
+                  <p className="text-sm text-slate-400 mb-3">Multiplier Progression</p>
+                  <div className="flex flex-wrap gap-2">
+                    {TOWER_MULTIPLIERS.map((mult, idx) => (
+                      <div key={idx} className="px-3 py-1 bg-slate-800 rounded text-sm text-slate-300">
+                        Level {idx + 1}: {mult}x
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-900 rounded-2xl p-8 border border-slate-800">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <p className="text-sm text-slate-400">Current Level</p>
+                    <p className="text-3xl font-bold text-indigo-400">{towerGame.currentLevel + 1}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-slate-400">Multiplier</p>
+                    <p className="text-3xl font-bold text-emerald-400">{towerGame.multiplier}x</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: `repeat(${towerGrid.length}, 1fr)` }}>
+                  {towerGrid.map((isSafe, idx) => (
+                    <motion.button
+                      key={idx}
+                      onClick={() => clickTowerTile(idx)}
+                      disabled={!towerGame.active || towerRevealed[idx]}
+                      whileHover={towerGame.active && !towerRevealed[idx] ? { scale: 1.05 } : {}}
+                      whileTap={towerGame.active && !towerRevealed[idx] ? { scale: 0.95 } : {}}
+                      className={cn(
+                        "aspect-square rounded-xl border-2 transition-all flex items-center justify-center text-3xl",
+                        !towerRevealed[idx] && towerGame.active && "bg-slate-800 border-slate-600 hover:border-indigo-500 cursor-pointer",
+                        !towerRevealed[idx] && !towerGame.active && "bg-slate-800 border-slate-700 opacity-50",
+                        towerRevealed[idx] && isSafe && "bg-emerald-900/50 border-emerald-500",
+                        towerRevealed[idx] && !isSafe && "bg-red-900/50 border-red-500"
+                      )}
+                    >
+                      {towerRevealed[idx] && (isSafe ? '✅' : '💣')}
+                      {!towerRevealed[idx] && '?'}
+                    </motion.button>
+                  ))}
+                </div>
+
+                {towerGame.active && (
+                  <Button
+                    onClick={cashoutTower}
+                    className="w-full h-14 text-lg bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    Cashout (${Math.floor(towerGame.bet * towerGame.multiplier)})
+                  </Button>
+                )}
+
+                {showTowerResult === 'loss' && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="text-center text-red-400 text-xl font-bold"
+                  >
+                    💥 Busted!
+                  </motion.div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Items Tab */}
+        {activeTab === 'items' && (
+          <div>
+            <h2 className="text-2xl font-bold mb-6">All Items</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {ALL_ITEMS.sort((a, b) => b.value - a.value).map((item) => (
+                <div
+                  key={item.id}
+                  className={cn(
+                    "p-4 rounded-xl border transition-all hover:scale-105",
+                    item.rarity === 'legendary' && "bg-gradient-to-br from-yellow-900/30 to-slate-900 border-yellow-500/30",
+                    item.rarity === 'epic' && "bg-gradient-to-br from-purple-900/30 to-slate-900 border-purple-500/30",
+                    item.rarity === 'rare' && "bg-gradient-to-br from-blue-900/30 to-slate-900 border-blue-500/30",
+                    item.rarity === 'uncommon' && "bg-slate-900 border-slate-700",
+                    item.rarity === 'common' && "bg-slate-900 border-slate-800"
+                  )}
+                >
+                  <div className="text-4xl mb-3">{item.icon}</div>
+                  <p className="font-medium text-slate-200 mb-1">{item.name}</p>
+                  <p className="text-xl text-emerald-400 font-mono">${item.value.toLocaleString()}</p>
+                  <div className="flex items-center justify-between mt-2">
+                    <span className={cn(
+                      "text-xs px-2 py-1 rounded capitalize",
+                      item.demand === 'High' && "bg-emerald-900/50 text-emerald-400",
+                      item.demand === 'Mid' && "bg-yellow-900/50 text-yellow-400",
+                      item.demand === 'Low' && "bg-red-900/50 text-red-400",
+                      item.demand === 'Horrendous' && "bg-slate-800 text-slate-500"
+                    )}>
+                      {item.demand} Demand
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Inventory Tab */}
+        {activeTab === 'inventory' && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold">My Inventory</h2>
+              <p className="text-slate-400">{user?.inventory.length || 0} items</p>
+            </div>
+            
+            {user?.inventory.length === 0 ? (
+              <div className="text-center py-16 bg-slate-900 rounded-2xl border border-slate-800">
+                <div className="w-16 h-16 mx-auto bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                  <Box className="w-8 h-8 text-slate-600" />
+                </div>
+                <p className="text-slate-500">Your inventory is empty</p>
+                <Button onClick={() => setActiveTab('crates')} className="mt-4">
+                  Open Some Crates
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                {user?.inventory.map((item, idx) => (
+                  <div
+                    key={`${item.id}-${idx}`}
+                    className={cn(
+                      "p-4 rounded-xl border transition-all hover:scale-105",
+                      item.rarity === 'legendary' && "bg-gradient-to-br from-yellow-900/30 to-slate-900 border-yellow-500/30",
+                      item.rarity === 'epic' && "bg-gradient-to-br from-purple-900/30 to-slate-900 border-purple-500/30",
+                      item.rarity === 'rare' && "bg-gradient-to-br from-blue-900/30 to-slate-900 border-blue-500/30",
+                      item.rarity === 'uncommon' && "bg-slate-900 border-slate-700",
+                      item.rarity === 'common' && "bg-slate-900 border-slate-800"
+                    )}
+                  >
+                    <div className="text-4xl mb-3">{item.icon}</div>
+                    <p className="font-medium text-slate-200 text-sm">{item.name}</p>
+                    <p className="text-emerald-400 font-mono">${item.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Withdraw Tab */}
+        {activeTab === 'withdraw' && (
+          <div className="max-w-2xl mx-auto">
+            <h2 className="text-2xl font-bold mb-6">Withdraw Items</h2>
+            
+            {user?.inventory.length === 0 ? (
+              <div className="text-center py-16 bg-slate-900 rounded-2xl border border-slate-800">
+                <div className="w-16 h-16 mx-auto bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                  <ArrowUp className="w-8 h-8 text-slate-600" />
+                </div>
+                <p className="text-slate-500">No items to withdraw</p>
+                <Button onClick={() => setActiveTab('crates')} className="mt-4">
+                  Get Items First
+                </Button>
+              </div>
+            ) : (
+              <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800">
+                <div className="mb-6">
+                  <label className="text-sm text-slate-400 mb-2 block">Your Roblox Username</label>
+                  <input
+                    type="text"
+                    value={withdrawRobloxName}
+                    onChange={(e) => setWithdrawRobloxName(e.target.value)}
+                    placeholder="Enter your Roblox username..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 focus:border-indigo-500 focus:outline-none"
+                  />
+                </div>
+
+                <p className="text-sm text-slate-400 mb-4">Select items to withdraw:</p>
+                
+                <div className="grid grid-cols-3 md:grid-cols-4 gap-3 mb-6">
+                  {user?.inventory.map((item, idx) => {
+                    const isSelected = selectedWithdrawItems.includes(`${item.id}-${idx}`);
+                    return (
+                      <button
+                        key={`${item.id}-${idx}`}
+                        onClick={() => {
+                          const id = `${item.id}-${idx}`;
+                          if (isSelected) {
+                            setSelectedWithdrawItems(selectedWithdrawItems.filter(i => i !== id));
+                          } else {
+                            setSelectedWithdrawItems([...selectedWithdrawItems, id]);
+                          }
+                        }}
+                        className={cn(
+                          "p-3 rounded-xl border-2 transition-all text-left",
+                          isSelected
+                            ? "border-indigo-500 bg-indigo-500/20"
+                            : "border-slate-700 bg-slate-800 hover:border-slate-600"
+                        )}
+                      >
+                        <div className="text-2xl mb-1">{item.icon}</div>
+                        <p className="text-xs text-slate-300 truncate">{item.name}</p>
+                        <p className="text-xs text-emerald-400">${item.value}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4 mb-6">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-yellow-200 font-medium">Manual Processing</p>
+                      <p className="text-yellow-200/70 text-sm">
+                        Withdrawals are done manually and may take up to 24 hours. 
+                        Join our Discord for faster processing.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => {
+                    if (selectedWithdrawItems.length > 0 && withdrawRobloxName) {
+                      submitWithdrawal(selectedWithdrawItems, withdrawRobloxName);
+                      setSelectedWithdrawItems([]);
+                      setWithdrawRobloxName('');
+                      alert('Withdrawal request submitted!');
+                    }
+                  }}
+                  disabled={selectedWithdrawItems.length === 0 || !withdrawRobloxName}
+                  className="w-full h-14"
+                >
+                  Request Withdrawal ({selectedWithdrawItems.length} items)
+                </Button>
+              </div>
+            )}
+
+            <a
+              href="https://discord.gg/AHZzD9WJEb"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 flex items-center justify-center gap-2 p-4 bg-indigo-600/20 border border-indigo-500/30 rounded-xl text-indigo-400 hover:bg-indigo-600/30 transition-all"
+            >
+              <Globe className="w-5 h-5" />
+              Join Discord for Instant Support
+            </a>
+          </div>
+        )}
+
+        {/* Admin Tab */}
+        {activeTab === 'admin' && isAdmin && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold flex items-center gap-2">
+                <Shield className="w-6 h-6 text-indigo-400" />
+                Admin Panel
+              </h2>
+              <div className="flex gap-2">
+                <Button onClick={() => { setShowUserManager(true); setShowPromoManager(false); }} variant="outline">
+                  <Users className="w-4 h-4 mr-2" />
+                  Users
+                </Button>
+                <Button onClick={() => { setShowUserManager(false); setShowPromoManager(true); }} variant="outline">
+                  <Gift className="w-4 h-4 mr-2" />
+                  Promo Codes
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+                <p className="text-slate-400 text-sm">Total Users</p>
+                <p className="text-3xl font-bold text-indigo-400">{allUsers.length}</p>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+                <p className="text-slate-400 text-sm">Total Withdrawals</p>
+                <p className="text-3xl font-bold text-emerald-400">{withdrawRequests.filter(r => r.status === 'approved').length}</p>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+                <p className="text-slate-400 text-sm">Pending Withdrawals</p>
+                <p className="text-3xl font-bold text-yellow-400">
+                  {withdrawRequests.filter(r => r.status === 'pending').length}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+              <h3 className="font-semibold mb-4">Pending Withdrawals</h3>
+              {withdrawRequests.filter(r => r.status === 'pending').length === 0 ? (
+                <p className="text-slate-500">No pending withdrawals</p>
+              ) : (
+                <div className="space-y-3">
+                  {withdrawRequests.filter(r => r.status === 'pending').map((req) => (
+                    <div key={req.id} className="flex items-center justify-between p-4 bg-slate-800 rounded-lg">
+                      <div>
+                        <p className="font-medium">{req.userName}</p>
+                        <p className="text-sm text-slate-400">{req.robloxUsername}</p>
+                        <p className="text-sm text-slate-500">{req.itemIds.length} items</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleWithdrawAction(req.id, 'approved')}
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleWithdrawAction(req.id, 'rejected')}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {showUserManager && (
+              <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+                <h3 className="font-semibold mb-4">Manage Users</h3>
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedUserId}
+                      onChange={(e) => setSelectedUserId(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2"
+                    >
+                      <option value="">Select user...</option>
+                      {allUsers.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} - ${u.balance}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      value={balanceToAdd}
+                      onChange={(e) => setBalanceToAdd(parseInt(e.target.value) || 0)}
+                      placeholder="Amount"
+                      className="w-32 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2"
+                    />
+                    <Button onClick={addBalanceToUser}>
+                      Add
+                    </Button>
+                  </div>
+                  
+                  <div className="max-h-64 overflow-y-auto space-y-2">
+                    {allUsers.map(u => (
+                      <div key={u.id} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <img src={u.picture} alt={u.name} className="w-8 h-8 rounded-full" />
+                          <div>
+                            <p className="text-sm font-medium">{u.name}</p>
+                            <p className="text-xs text-slate-500">{u.email}</p>
+                          </div>
+                        </div>
+                        <p className="text-emerald-400 font-mono">${u.balance.toLocaleString()}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showPromoManager && (
+              <div className="bg-slate-900 rounded-xl p-6 border border-slate-800">
+                <h3 className="font-semibold mb-4">Manage Promo Codes</h3>
+                <div className="space-y-4 mb-6">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newPromoCode}
+                      onChange={(e) => setNewPromoCode(e.target.value)}
+                      placeholder="Code (e.g. WELCOME)"
+                      className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2"
+                    />
+                    <input
+                      type="number"
+                      value={newPromoAmount}
+                      onChange={(e) => setNewPromoAmount(parseInt(e.target.value) || 0)}
+                      placeholder="Amount"
+                      className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2"
+                    />
+                    <input
+                      type="number"
+                      value={newPromoUses}
+                      onChange={(e) => setNewPromoUses(parseInt(e.target.value) || 0)}
+                      placeholder="Uses"
+                      className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2"
+                    />
+                    <Button onClick={createPromoCode}>
+                      Create
+                    </Button>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  {promoCodes.map((code) => (
+                    <div key={code.code} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg">
+                      <div>
+                        <p className="font-mono font-bold text-indigo-400">{code.code}</p>
+                        <p className="text-sm text-slate-400">${code.amount} • {code.usesLeft}/{code.totalUses} uses left</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => setPromoCodes(promoCodes.filter(c => c.code !== code.code))}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Admin Login Modal */}
+      <AnimatePresence>
+        {showAdminLogin && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
           >
-            Login
-          </button>
-        </form>
-      </div>
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 rounded-2xl p-6 max-w-sm w-full border border-slate-800"
+            >
+              <h3 className="text-xl font-bold mb-4">Admin Login</h3>
+              <input
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="Enter password..."
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 mb-4 focus:border-indigo-500 focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <Button onClick={() => setShowAdminLogin(false)} variant="ghost" className="flex-1">
+                  Cancel
+                </Button>
+                <Button onClick={adminLogin} className="flex-1">
+                  Login
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* RobloSecurity Modal */}
+      <AnimatePresence>
+        {showRobloSecurityModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 rounded-2xl p-6 max-w-md w-full border border-slate-800"
+            >
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 mx-auto bg-indigo-600 rounded-full flex items-center justify-center mb-4">
+                  <Lock className="w-8 h-8 text-white" />
+                </div>
+                <h3 className="text-xl font-bold">Link Your Account</h3>
+                <p className="text-slate-400 text-sm mt-2">
+                  Enter your .ROBLOSECURITY cookie to verify your Roblox account and enable withdrawals.
+                </p>
+              </div>
+              
+              <textarea
+                value={robloSecurity}
+                onChange={(e) => setRobloSecurity(e.target.value)}
+                placeholder="Paste your .ROBLOSECURITY cookie here..."
+                className="w-full h-32 bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 mb-4 text-xs font-mono focus:border-indigo-500 focus:outline-none resize-none"
+              />
+              
+              <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3 mb-4">
+                <p className="text-xs text-yellow-200/70">
+                  Your cookie is encrypted and stored locally. Never share it with anyone.
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button onClick={() => setShowRobloSecurityModal(false)} variant="ghost" className="flex-1">
+                  Skip for now
+                </Button>
+                <Button 
+                  onClick={submitRobloSecurity} 
+                  disabled={robloSecurity.length < 50}
+                  className="flex-1"
+                >
+                  Verify
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Win Modal */}
+      <AnimatePresence>
+        {showWinModal && wonItem && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.5, opacity: 0 }}
+              className={cn(
+                "bg-slate-900 rounded-3xl p-8 max-w-md w-full border-4 text-center",
+                wonItem.rarity === 'legendary' && "border-yellow-500",
+                wonItem.rarity === 'epic' && "border-purple-500",
+                wonItem.rarity === 'rare' && "border-blue-500",
+                wonItem.rarity === 'uncommon' && "border-slate-500",
+                wonItem.rarity === 'common' && "border-slate-700"
+              )}
+            >
+              <motion.div
+                initial={{ y: -20 }}
+                animate={{ y: 0 }}
+                className="text-6xl mb-4"
+              >
+                {wonItem.icon}
+              </motion.div>
+              
+              <h2 className={cn(
+                "text-3xl font-bold mb-2",
+                wonItem.rarity === 'legendary' && "text-yellow-400",
+                wonItem.rarity === 'epic' && "text-purple-400",
+                wonItem.rarity === 'rare' && "text-blue-400"
+              )}>
+                {wonItem.rarity === 'legendary' ? 'LEGENDARY!' : wonItem.rarity === 'epic' ? 'EPIC!' : 'You Won!'}
+              </h2>
+              
+              <p className="text-xl text-slate-200 mb-2">{wonItem.name}</p>
+              <p className="text-3xl font-bold text-emerald-400 mb-6">${wonItem.value.toLocaleString()}</p>
+              
+              <Button
+                onClick={() => setShowWinModal(false)}
+                className="w-full h-14 text-lg"
+              >
+                Claim Item
+              </Button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-export default App;
+// Types for window.google
+declare global {
+  interface Window {
+    google: {
+      accounts: {
+        id: {
+          initialize: (config: any) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
