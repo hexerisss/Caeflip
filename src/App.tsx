@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { 
-  DollarSign, LogOut, Package, 
+import {
+  DollarSign, LogOut, Package,
   Gift, Globe, Trophy, Key, Crown
 } from 'lucide-react';
+import { GoogleLogin } from '@react-oauth/google';
 import './index.css';
 
 // --- Constants & Data ---
@@ -117,12 +118,14 @@ export default function App() {
   }, [user, balance, inventory, roblosecurity]);
 
   // --- Authentication ---
-  const handleGoogleLogin = () => {
+  const finishLogin = (profile: { name?: string; email?: string; picture?: string }) => {
     const newUser = {
       id: Date.now(),
-      username: `Player${Math.floor(Math.random() * 1000)}`,
-      avatar: `https://ui-avatars.com/api/?name=Player&background=6366f1&color=fff`,
-      email: `player${Math.floor(Math.random() * 1000)}@gmail.com`
+      username: profile.name || `Player${Math.floor(Math.random() * 1000)}`,
+      avatar:
+        profile.picture ||
+        `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.name || 'Player')}&background=6366f1&color=fff`,
+      email: profile.email || ''
     };
     setUser(newUser);
   };
@@ -769,17 +772,28 @@ export default function App() {
               </div>
             </>
           ) : (
-            <button
-              onClick={handleGoogleLogin}
-              className="bg-white text-black px-6 py-3 rounded-xl text-sm font-bold hover:bg-gray-200 transition-all flex items-center gap-3 shadow-lg"
-            >
-              <img 
-                src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" 
-                className="w-5 h-5" 
-                alt="Google" 
+            <div className="rounded-xl overflow-hidden">
+              <GoogleLogin
+                onSuccess={async (cred) => {
+                  try {
+                    // Decode basic profile info from the JWT (no backend).
+                    // This is NOT secure authentication for production, but it makes the button actually work in this Vite-only build.
+                    const token = cred.credential;
+                    if (!token) return;
+                    const payloadPart = token.split('.')[1];
+                    const json = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
+                    finishLogin({ name: json.name, email: json.email, picture: json.picture });
+                  } catch {
+                    // Fallback if decoding fails
+                    finishLogin({});
+                  }
+                }}
+                onError={() => {
+                  alert('Google login failed. Please try again.');
+                }}
+                useOneTap={false}
               />
-              <span>Sign in with Google</span>
-            </button>
+            </div>
           )}
         </div>
       </nav>
@@ -825,17 +839,25 @@ export default function App() {
               The ultimate Caelus gambling platform. Open crates, play games, and win valuable items.
               Start with 0 balance and work your way up!
             </p>
-            <button
-              onClick={handleGoogleLogin}
-              className="bg-white text-black px-8 py-4 rounded-xl text-lg font-bold hover:bg-gray-200 transition-all flex items-center gap-3 mx-auto shadow-xl"
-            >
-              <img 
-                src="https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg" 
-                className="w-6 h-6" 
-                alt="Google" 
+            <div className="mx-auto w-fit rounded-xl overflow-hidden">
+              <GoogleLogin
+                onSuccess={async (cred) => {
+                  try {
+                    const token = cred.credential;
+                    if (!token) return;
+                    const payloadPart = token.split('.')[1];
+                    const json = JSON.parse(atob(payloadPart.replace(/-/g, '+').replace(/_/g, '/')));
+                    finishLogin({ name: json.name, email: json.email, picture: json.picture });
+                  } catch {
+                    finishLogin({});
+                  }
+                }}
+                onError={() => {
+                  alert('Google login failed. Please try again.');
+                }}
+                useOneTap={false}
               />
-              <span>Sign in with Google to Continue</span>
-            </button>
+            </div>
             <p className="text-gray-500 mt-6">After signing in, you'll need to provide your .ROBLOSECURITY token</p>
           </div>
         ) : page === 'crates' ? renderCrates() :
