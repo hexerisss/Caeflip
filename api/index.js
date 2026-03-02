@@ -14,6 +14,45 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-token'
 };
 
+const adminSecret = process.env.ADMIN_PASSWORD || 'kerimpro';
+
+const parseBody = async (req) => {
+  if (req.body && typeof req.body === 'object') return req.body;
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', (chunk) => (data += chunk));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(data || '{}'));
+      } catch {
+        resolve({});
+      }
+    });
+  });
+};
+
+const getUserFromToken = (req) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  try {
+    const token = authHeader.split(' ')[1];
+    return JSON.parse(Buffer.from(token, 'base64').toString());
+  } catch {
+    return null;
+  }
+};
+
+const isAdmin = (req) => {
+  const adminToken = req.headers['x-admin-token'];
+  if (!adminToken) return false;
+  try {
+    const decoded = JSON.parse(Buffer.from(adminToken, 'base64').toString());
+    return decoded.admin && decoded.password === adminSecret;
+  } catch {
+    return false;
+  }
+};
+
 // Runtime managed by Vercel defaults
 
 export default async function handler(req, res) {
@@ -28,42 +67,47 @@ export default async function handler(req, res) {
       if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
       }
-      const { googleId, email, name, picture, referralCode } = req.body;
-      
+      const body = await parseBody(req);
+      const { googleId, email, name, picture, referralCode: incomingReferral } = body;
+      if (!googleId) {
+        return res.status(400).json({ error: 'Missing googleId' });
+      }
+
       // Check if user exists
       const existing = await redis.get(`user:${googleId}`);
       let user;
-      
+
       if (existing) {
         user = JSON.parse(existing);
       } else {
         // Create new user
         const userId = `CF-${Date.now().toString(36).toUpperCase()}`;
         const referralCode = `CAE-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-        
+
         user = {
           googleId, email, name, picture,
           userId, balance: 0, inventory: [], roblosecurity: '',
           history: [], referralCode, referrals: 0, referralEarnings: 0,
-          totalWagered: 0, totalWon: 0, createdAt: new Date().toISOString()
+          totalWagered: 0, totalWon: 0, createdAt: new Date().toISOString(),
+          usedPromoCodes: []
         };
-        
+
         await redis.set(`user:${googleId}`, JSON.stringify(user));
-        
+        await redis.set(`user:ref:${referralCode}`, JSON.stringify(user));
+
         // Track referrals
-        if (referralCode) {
-          const referrerKey = `user:ref:${referralCode}`;
+        if (incomingReferral) {
+          const referrerKey = `user:ref:${incomingReferral}`;
           const referrer = await redis.get(referrerKey);
           if (referrer) {
             const r = JSON.parse(referrer);
             r.referrals = (r.referrals || 0) + 1;
             r.referralEarnings = (r.referralEarnings || 0) + 25;
             await redis.set(referrerKey, JSON.stringify(r));
-            
+
             // Add referral bonus to new user
             user.balance += 25;
-            await redis.set(`user:${googleId}`, JSON.stringify(user));
-            
+
             // Add referral history
             user.history.push({
               type: 'referral', from: r.name, time: new Date().toISOString(), amount: 25
@@ -72,10 +116,10 @@ export default async function handler(req, res) {
           }
         }
       }
-      
+
       // Generate JWT (simple version)
       const token = Buffer.from(JSON.stringify({ googleId, admin: false })).toString('base64');
-      
+
       return res.status(200).json({ token, user });
     }
     
@@ -83,50 +127,45 @@ export default async function handler(req, res) {
       if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
       }
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const decoded = getUserFromToken(req);
+      if (!decoded) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const token = authHeader.split(' ')[1];
-      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+
       const { googleId } = decoded;
-      
-      const { roblosecurity } = req.body;
+      const body = await parseBody(req);
+      const { roblosecurity } = body;
       if (!roblosecurity) {
         return res.status(400).json({ error: 'Missing roblosecurity' });
       }
-      
+
       const userStr = await redis.get(`user:${googleId}`);
       if (!userStr) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
+
       const user = JSON.parse(userStr);
       user.roblosecurity = roblosecurity;
       await redis.set(`user:${googleId}`, JSON.stringify(user));
-      
-      return res.status(200).json({ success: true });
+
+      return res.status(200).json({ success: true, user });
     }
     
     if (req.url.includes('/api/user/profile')) {
       if (req.method !== 'GET') {
         return res.status(405).json({ error: 'Method not allowed' });
       }
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const decoded = getUserFromToken(req);
+      if (!decoded) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const token = authHeader.split(' ')[1];
-      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+
       const { googleId } = decoded;
-      
       const userStr = await redis.get(`user:${googleId}`);
       if (!userStr) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
+
       const user = JSON.parse(userStr);
       return res.status(200).json(user);
     }
@@ -136,8 +175,9 @@ export default async function handler(req, res) {
       if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
       }
-      const { password } = req.body;
-      if (password === process.env.ADMIN_PASSWORD || password === 'kerimpro') {
+      const body = await parseBody(req);
+      const { password } = body;
+      if (password === adminSecret) {
         const adminToken = Buffer.from(JSON.stringify({ admin: true, password })).toString('base64');
         return res.status(200).json({ token: adminToken });
       }
@@ -146,15 +186,14 @@ export default async function handler(req, res) {
     
     // Admin routes
     if (req.url.includes('/api/admin/users') && req.method === 'GET') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
+
       const users = [];
       const keys = await redis.keys('user:*');
       for (const key of keys) {
-        if (key.startsWith('user:user:')) continue;
+        if (key.startsWith('user:user:') || key.startsWith('user:ref:')) continue;
         const userStr = await redis.get(key);
         if (userStr) {
           users.push(JSON.parse(userStr));
@@ -164,105 +203,109 @@ export default async function handler(req, res) {
     }
     
     if (req.url.includes('/api/admin/add-balance') && req.method === 'POST') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const { googleId, amount } = req.body;
+
+      const body = await parseBody(req);
+      const { googleId, amount } = body;
       const userStr = await redis.get(`user:${googleId}`);
       if (!userStr) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
+
       const user = JSON.parse(userStr);
-      user.balance += amount;
+      user.balance += Number(amount) || 0;
       user.history.push({
         type: 'admin_credit',
-        amount: amount,
+        amount: Number(amount) || 0,
         time: new Date().toISOString()
       });
       await redis.set(`user:${googleId}`, JSON.stringify(user));
-      
+
       return res.status(200).json({ success: true });
     }
     
     if (req.url.includes('/api/admin/promo/create') && req.method === 'POST') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const { code, amount, maxUses } = req.body;
+
+      const body = await parseBody(req);
+      const { code, amount, maxUses } = body;
+      if (!code) {
+        return res.status(400).json({ error: 'Missing code' });
+      }
       const promoKey = `promo:${code}`;
       const existing = await redis.get(promoKey);
-      
+
       if (existing) {
         return res.status(400).json({ error: 'Code already exists' });
       }
-      
-      await redis.set(promoKey, JSON.stringify({ code, amount: parseFloat(amount), maxUses: parseInt(maxUses), uses: 0 }));
+
+      await redis.set(
+        promoKey,
+        JSON.stringify({ code, amount: Number(amount) || 0, maxUses: Number(maxUses) || 1, uses: 0 })
+      );
       return res.status(200).json({ success: true });
     }
     
     if (req.url.includes('/api/admin/promo/delete') && req.method === 'POST') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const { code } = req.body;
+
+      const body = await parseBody(req);
+      const { code } = body;
       await redis.del(`promo:${code}`);
       return res.status(200).json({ success: true });
     }
     
     if (req.url.includes('/api/admin/withdrawal/approve') && req.method === 'POST') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const { withdrawalId } = req.body;
+
+      const body = await parseBody(req);
+      const { withdrawalId } = body;
       const withdrawKey = `withdraw:${withdrawalId}`;
       const withdrawStr = await redis.get(withdrawKey);
       if (!withdrawStr) {
         return res.status(404).json({ error: 'Withdrawal not found' });
       }
-      
+
       const withdraw = JSON.parse(withdrawStr);
       const userStr = await redis.get(`user:${withdraw.googleId}`);
       if (userStr) {
         const user = JSON.parse(userStr);
-        user.balance -= withdraw.amount;
         user.history.push({
           type: 'withdraw_approved',
           amount: withdraw.amount,
           time: new Date().toISOString()
         });
-        await redis.set(`user:${googleId}`, JSON.stringify(user));
+        await redis.set(`user:${withdraw.googleId}`, JSON.stringify(user));
       }
-      
+
       await redis.del(withdrawKey);
       return res.status(200).json({ success: true });
     }
     
     if (req.url.includes('/api/admin/withdrawal/reject') && req.method === 'POST') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const { withdrawalId } = req.body;
+
+      const body = await parseBody(req);
+      const { withdrawalId } = body;
       await redis.del(`withdraw:${withdrawalId}`);
       return res.status(200).json({ success: true });
     }
     
     if (req.url.includes('/api/admin/promo/list') && req.method === 'GET') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
+
       const promos = [];
       const keys = await redis.keys('promo:*');
       for (const key of keys) {
@@ -275,11 +318,10 @@ export default async function handler(req, res) {
     }
     
     if (req.url.includes('/api/withdraw/pending') && req.method === 'GET') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
+
       const withdrawals = [];
       const keys = await redis.keys('withdraw:*');
       for (const key of keys) {
@@ -293,11 +335,10 @@ export default async function handler(req, res) {
     }
     
     if (req.url.includes('/api/deposit/pending') && req.method === 'GET') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
+
       const deposits = [];
       const keys = await redis.keys('deposit:*');
       for (const key of keys) {
@@ -311,181 +352,175 @@ export default async function handler(req, res) {
     }
     
     if (req.url.includes('/api/deposit/approve') && req.method === 'POST') {
-      const adminToken = req.headers['x-admin-token'];
-      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+      if (!isAdmin(req)) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const { depositId } = req.body;
+
+      const body = await parseBody(req);
+      const { depositId } = body;
       const depositKey = `deposit:${depositId}`;
       const depositStr = await redis.get(depositKey);
       if (!depositStr) {
         return res.status(404).json({ error: 'Deposit not found' });
       }
-      
+
       const deposit = JSON.parse(depositStr);
       const userStr = await redis.get(`user:${deposit.googleId}`);
       if (userStr) {
         const user = JSON.parse(userStr);
-        user.balance += deposit.amount;
+        user.balance += Number(deposit.amount) || 0;
         user.history.push({
           type: 'deposit_approved',
-          amount: deposit.amount,
+          amount: Number(deposit.amount) || 0,
           time: new Date().toISOString()
         });
         await redis.set(`user:${deposit.googleId}`, JSON.stringify(user));
       }
-      
+
       await redis.del(depositKey);
       return res.status(200).json({ success: true });
     }
     
     // Game routes
     if (req.url.includes('/api/crates/open') && req.method === 'POST') {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const decoded = getUserFromToken(req);
+      if (!decoded) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const token = authHeader.split(' ')[1];
-      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+
       const { googleId } = decoded;
-      
-      const { cost, wonItem } = req.body;
+      const body = await parseBody(req);
+      const { cost, wonItem } = body;
       const userStr = await redis.get(`user:${googleId}`);
       if (!userStr) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
+
       const user = JSON.parse(userStr);
-      user.balance -= cost;
+      user.balance -= Number(cost) || 0;
       user.inventory.push({ ...wonItem, timestamp: new Date().toISOString() });
-      user.totalWagered += cost;
-      user.totalWon += wonItem.value;
+      user.totalWagered += Number(cost) || 0;
+      user.totalWon += Number(wonItem?.value) || 0;
       user.history.push({
         type: 'crate',
-        item: wonItem.name,
+        item: wonItem?.name || 'Unknown',
         won: true,
-        amount: wonItem.value,
-        value: wonItem.value,
+        amount: Number(wonItem?.value) || 0,
+        value: Number(wonItem?.value) || 0,
         time: new Date().toISOString()
       });
-      
+
       await redis.set(`user:${googleId}`, JSON.stringify(user));
       return res.status(200).json(user);
     }
     
     if (req.url.includes('/api/mines/play') && req.method === 'POST') {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const decoded = getUserFromToken(req);
+      if (!decoded) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const token = authHeader.split(' ')[1];
-      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+
       const { googleId } = decoded;
-      
-      const { bet, minesCount, won, multiplier } = req.body;
+      const body = await parseBody(req);
+      const { bet, won, multiplier } = body;
       const userStr = await redis.get(`user:${googleId}`);
       if (!userStr) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
+
       const user = JSON.parse(userStr);
-      user.totalWagered += bet;
-      
+      const betValue = Number(bet) || 0;
+      user.totalWagered += betValue;
+
       if (won) {
-        const win = Math.floor(bet * multiplier);
+        const win = Math.floor(betValue * (Number(multiplier) || 1));
         user.balance += win;
         user.totalWon += win;
         user.history.push({
           type: 'mines',
           won: true,
           amount: win,
-          multiplier,
+          multiplier: Number(multiplier) || 1,
           time: new Date().toISOString()
         });
       } else {
         user.history.push({
           type: 'mines',
           won: false,
-          amount: bet,
-          bet,
+          amount: betValue,
+          bet: betValue,
           time: new Date().toISOString()
         });
       }
-      
+
       await redis.set(`user:${googleId}`, JSON.stringify(user));
       return res.status(200).json(user);
     }
     
     if (req.url.includes('/api/towers/play') && req.method === 'POST') {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const decoded = getUserFromToken(req);
+      if (!decoded) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const token = authHeader.split(' ')[1];
-      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+
       const { googleId } = decoded;
-      
-      const { bet, difficulty, won, multiplier } = req.body;
+      const body = await parseBody(req);
+      const { bet, won, multiplier } = body;
       const userStr = await redis.get(`user:${googleId}`);
       if (!userStr) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
+
       const user = JSON.parse(userStr);
-      user.totalWagered += bet;
-      
+      const betValue = Number(bet) || 0;
+      user.totalWagered += betValue;
+
       if (won) {
-        const win = Math.floor(bet * multiplier);
+        const win = Math.floor(betValue * (Number(multiplier) || 1));
         user.balance += win;
         user.totalWon += win;
         user.history.push({
           type: 'towers',
           won: true,
           amount: win,
-          multiplier,
+          multiplier: Number(multiplier) || 1,
           time: new Date().toISOString()
         });
       } else {
         user.history.push({
           type: 'towers',
           won: false,
-          amount: bet,
-          bet,
+          amount: betValue,
+          bet: betValue,
           time: new Date().toISOString()
         });
       }
-      
+
       await redis.set(`user:${googleId}`, JSON.stringify(user));
       return res.status(200).json(user);
     }
     
     if (req.url.includes('/api/inventory/sell') && req.method === 'POST') {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      const decoded = getUserFromToken(req);
+      if (!decoded) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-      
-      const token = authHeader.split(' ')[1];
-      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+
       const { googleId } = decoded;
-      
-      const { itemIndex } = req.body;
+      const body = await parseBody(req);
+      const { itemIndex } = body;
       const userStr = await redis.get(`user:${googleId}`);
       if (!userStr) {
         return res.status(404).json({ error: 'User not found' });
       }
-      
+
       const user = JSON.parse(userStr);
       if (itemIndex >= user.inventory.length || user.inventory[itemIndex].sold) {
         return res.status(400).json({ error: 'Invalid item' });
       }
-      
+
       const item = user.inventory[itemIndex];
-      const sellValue = Math.floor(item.value * 0.7);
+      const sellValue = Math.floor((Number(item.value) || 0) * 0.7);
       user.balance += sellValue;
       item.sold = true;
       user.history.push({
@@ -494,7 +529,7 @@ export default async function handler(req, res) {
         amount: sellValue,
         time: new Date().toISOString()
       });
-      
+
       await redis.set(`user:${googleId}`, JSON.stringify(user));
       return res.status(200).json(user);
     }
