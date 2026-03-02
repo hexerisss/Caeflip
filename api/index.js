@@ -1,431 +1,641 @@
-import express from 'express';
-import cors from 'cors';
-import jwt from 'jsonwebtoken';
-import { createClient } from 'redis';
+import { createClient } from '@redis/client';
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+const redis = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379'
+});
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://default:R9iQ6XdQm8kmzTLaANgzQXVAELk9v7nc@redis-16823.c82.us-east-1-2.ec2.cloud.redislabs.com:16823';
-const JWT_SECRET = process.env.JWT_SECRET || 'caeflip-secret-key-123';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'kerimpro';
+await redis.connect();
 
-let redisClient;
+console.log('Redis connected');
 
-async function getRedis() {
-  if (!redisClient) {
-    redisClient = createClient({ url: REDIS_URL });
-    redisClient.on('error', (err) => console.log('Redis Client Error', err));
-    await redisClient.connect();
-  }
-  return redisClient;
-}
-
-// Auth Middleware
-const authenticate = async (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    res.status(401).json({ error: 'Invalid token' });
-  }
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-token'
 };
 
-// Admin Middleware
-const adminAuth = (req, res, next) => {
-  const adminToken = req.headers['x-admin-token'];
-  if (adminToken === ADMIN_PASSWORD) {
-    next();
-  } else {
-    res.status(403).json({ error: 'Forbidden' });
-  }
+export const config = {
+  runtime: 'nodejs-18.x'
 };
 
-// --- AUTH ROUTES ---
-
-app.post('/api/auth/google', async (req, res) => {
-  const { googleId, email, name, picture } = req.body;
-  try {
-    const redis = await getRedis();
-    
-    let userStr = await redis.get(`user:${googleId}`);
-    let user;
-    
-    if (!userStr) {
-      user = {
-        googleId,
-        email,
-        name,
-        picture,
-        balance: 0,
-        inventory: [],
-        roblosecurity: '',
-        createdAt: new Date().toISOString()
-      };
-      await redis.set(`user:${googleId}`, JSON.stringify(user));
-      await redis.sAdd('users', googleId);
-    } else {
-      user = JSON.parse(userStr);
-      // Update profile info if changed
-      user.name = name;
-      user.picture = picture;
-      await redis.set(`user:${googleId}`, JSON.stringify(user));
-    }
-
-    const token = jwt.sign({ googleId: user.googleId, email: user.email }, JWT_SECRET);
-    res.json({ token, user });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+export default async function handler(req, res) {
+  // CORS preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).json({ success: true });
   }
-});
 
-app.post('/api/auth/roblosecurity', authenticate, async (req, res) => {
-  const { roblosecurity } = req.body;
   try {
-    const redis = await getRedis();
-    const userStr = await redis.get(`user:${req.user.googleId}`);
-    if (!userStr) return res.status(404).json({ error: 'User not found' });
-    
-    const user = JSON.parse(userStr);
-    user.roblosecurity = roblosecurity;
-    await redis.set(`user:${req.user.googleId}`, JSON.stringify(user));
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/user/profile', authenticate, async (req, res) => {
-  try {
-    const redis = await getRedis();
-    const userStr = await redis.get(`user:${req.user.googleId}`);
-    if (!userStr) return res.status(404).json({ error: 'User not found' });
-    res.json(JSON.parse(userStr));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- GAME ROUTES ---
-
-app.post('/api/crates/open', authenticate, async (req, res) => {
-  const { crateType, cost, wonItem } = req.body;
-  try {
-    const redis = await getRedis();
-    const userStr = await redis.get(`user:${req.user.googleId}`);
-    if (!userStr) return res.status(404).json({ error: 'User not found' });
-    
-    const user = JSON.parse(userStr);
-    if (user.balance < cost) return res.status(400).json({ error: 'Insufficient balance' });
-    
-    user.balance -= cost;
-    user.inventory.push({ ...wonItem, wonAt: new Date().toISOString() });
-    // Add item value to balance? No, usually inventory items are separate or sold.
-    // Based on frontend logic: "Win items and their value is added to your balance" was old prompt, 
-    // but usually in gambling sites you get the ITEM in inventory.
-    // The frontend code: `setUser(response.data.user)` updates local state.
-    // The previous frontend implementation didn't auto-sell. 
-    // Wait, the prompt said "add an inventory system". So keeping in inventory is correct.
-    
-    await redis.set(`user:${req.user.googleId}`, JSON.stringify(user));
-    res.json({ user });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/towers/play', authenticate, async (req, res) => {
-  const { bet, won, multiplier } = req.body;
-  try {
-    const redis = await getRedis();
-    const userStr = await redis.get(`user:${req.user.googleId}`);
-    if (!userStr) return res.status(404).json({ error: 'User not found' });
-    
-    const user = JSON.parse(userStr);
-    
-    // Frontend handles the game logic, backend just updates balance
-    // In a real app, backend should validate the game steps!
-    // For now, we trust the frontend's result but verify balance.
-    
-    // If user lost, they lost the bet.
-    // If user won, they win bet * multiplier - bet (profit) OR just set balance?
-    // Frontend says: `setUser({ ...user, balance: user.balance + towersBet * multiplier - towersBet });` for win
-    // `setUser({ ...user, balance: user.balance - towersBet });` for loss
-    
-    // But wait, the frontend sends the request AFTER the game ends?
-    // "clickTowerTile" -> if won, axios.post
-    // "clickTowerTile" -> if lost, axios.post
-    
-    // Actually, it's safer to deduct bet at START. But frontend implementation sends result at END.
-    // We will process the net change.
-    
-    if (won) {
-      const winnings = (bet * multiplier) - bet;
-      user.balance += winnings;
-    } else {
-      user.balance -= bet;
+    // Auth routes
+    if (req.url.includes('/api/auth/google')) {
+      if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method not allowed' });
+      }
+      const { googleId, email, name, picture, referralCode } = req.body;
+      
+      // Check if user exists
+      const existing = await redis.get(`user:${googleId}`);
+      let user;
+      
+      if (existing) {
+        user = JSON.parse(existing);
+      } else {
+        // Create new user
+        const userId = `CF-${Date.now().toString(36).toUpperCase()}`;
+        const referralCode = `CAE-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        
+        user = {
+          googleId, email, name, picture,
+          userId, balance: 0, inventory: [], roblosecurity: '',
+          history: [], referralCode, referrals: 0, referralEarnings: 0,
+          totalWagered: 0, totalWon: 0, createdAt: new Date().toISOString()
+        };
+        
+        await redis.set(`user:${googleId}`, JSON.stringify(user));
+        
+        // Track referrals
+        if (referralCode) {
+          const referrerKey = `user:ref:${referralCode}`;
+          const referrer = await redis.get(referrerKey);
+          if (referrer) {
+            const r = JSON.parse(referrer);
+            r.referrals = (r.referrals || 0) + 1;
+            r.referralEarnings = (r.referralEarnings || 0) + 25;
+            await redis.set(referrerKey, JSON.stringify(r));
+            
+            // Add referral bonus to new user
+            user.balance += 25;
+            await redis.set(`user:${googleId}`, JSON.stringify(user));
+            
+            // Add referral history
+            user.history.push({
+              type: 'referral', from: r.name, time: new Date().toISOString(), amount: 25
+            });
+            await redis.set(`user:${googleId}`, JSON.stringify(user));
+          }
+        }
+      }
+      
+      // Generate JWT (simple version)
+      const token = Buffer.from(JSON.stringify({ googleId, admin: false })).toString('base64');
+      
+      return res.status(200).json({ token, user });
     }
     
-    // Prevent negative balance
-    if (user.balance < 0) user.balance = 0;
-    
-    await redis.set(`user:${req.user.googleId}`, JSON.stringify(user));
-    res.json({ user });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/mines/play', authenticate, async (req, res) => {
-  const { bet, won, multiplier } = req.body;
-  try {
-    const redis = await getRedis();
-    const userStr = await redis.get(`user:${req.user.googleId}`);
-    if (!userStr) return res.status(404).json({ error: 'User not found' });
-    
-    const user = JSON.parse(userStr);
-    
-    if (won) {
-      // Logic: Bet was already deducted locally? No.
-      // Frontend: `setUser({ ...user, balance: user.balance - minesBet });` at START.
-      // Then `cashoutMines`: `setUser({ ...user, balance: user.balance + winAmount });`
+    if (req.url.includes('/api/auth/roblosecurity')) {
+      if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method not allowed' });
+      }
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
       
-      // Since frontend sends request only on cashout or loss:
-      // If won: User gets (bet * multiplier). Net change: + (bet * multiplier) - bet.
-      // If lost: User loses bet. Net change: -bet.
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
       
-      // WAIT! The frontend `startMinesGame` does NOT call API. It only updates local state.
-      // API is called only on `cashout` (won=true) or `hitMine` (won=false).
-      // So we need to apply the transaction.
+      const { roblosecurity } = req.body;
+      if (!roblosecurity) {
+        return res.status(400).json({ error: 'Missing roblosecurity' });
+      }
+      
+      const userStr = await redis.get(`user:${googleId}`);
+      if (!userStr) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const user = JSON.parse(userStr);
+      user.roblosecurity = roblosecurity;
+      await redis.set(`user:${googleId}`, JSON.stringify(user));
+      
+      return res.status(200).json({ success: true });
+    }
+    
+    if (req.url.includes('/api/user/profile')) {
+      if (req.method !== 'GET') {
+        return res.status(405).json({ error: 'Method not allowed' });
+      }
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
+      
+      const userStr = await redis.get(`user:${googleId}`);
+      if (!userStr) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const user = JSON.parse(userStr);
+      return res.status(200).json(user);
+    }
+    
+    // Admin verify
+    if (req.url.includes('/api/admin/verify')) {
+      if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method not allowed' });
+      }
+      const { password } = req.body;
+      if (password === process.env.ADMIN_PASSWORD || password === 'kerimpro') {
+        const adminToken = Buffer.from(JSON.stringify({ admin: true, password })).toString('base64');
+        return res.status(200).json({ token: adminToken });
+      }
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+    
+    // Admin routes
+    if (req.url.includes('/api/admin/users') && req.method === 'GET') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const users = [];
+      const keys = await redis.keys('user:*');
+      for (const key of keys) {
+        if (key.startsWith('user:user:')) continue;
+        const userStr = await redis.get(key);
+        if (userStr) {
+          users.push(JSON.parse(userStr));
+        }
+      }
+      return res.status(200).json(users);
+    }
+    
+    if (req.url.includes('/api/admin/add-balance') && req.method === 'POST') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const { googleId, amount } = req.body;
+      const userStr = await redis.get(`user:${googleId}`);
+      if (!userStr) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const user = JSON.parse(userStr);
+      user.balance += amount;
+      user.history.push({
+        type: 'admin_credit',
+        amount: amount,
+        time: new Date().toISOString()
+      });
+      await redis.set(`user:${googleId}`, JSON.stringify(user));
+      
+      return res.status(200).json({ success: true });
+    }
+    
+    if (req.url.includes('/api/admin/promo/create') && req.method === 'POST') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const { code, amount, maxUses } = req.body;
+      const promoKey = `promo:${code}`;
+      const existing = await redis.get(promoKey);
+      
+      if (existing) {
+        return res.status(400).json({ error: 'Code already exists' });
+      }
+      
+      await redis.set(promoKey, JSON.stringify({ code, amount: parseFloat(amount), maxUses: parseInt(maxUses), uses: 0 }));
+      return res.status(200).json({ success: true });
+    }
+    
+    if (req.url.includes('/api/admin/promo/delete') && req.method === 'POST') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const { code } = req.body;
+      await redis.del(`promo:${code}`);
+      return res.status(200).json({ success: true });
+    }
+    
+    if (req.url.includes('/api/admin/withdrawal/approve') && req.method === 'POST') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const { withdrawalId } = req.body;
+      const withdrawKey = `withdraw:${withdrawalId}`;
+      const withdrawStr = await redis.get(withdrawKey);
+      if (!withdrawStr) {
+        return res.status(404).json({ error: 'Withdrawal not found' });
+      }
+      
+      const withdraw = JSON.parse(withdrawStr);
+      const userStr = await redis.get(`user:${withdraw.googleId}`);
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        user.balance -= withdraw.amount;
+        user.history.push({
+          type: 'withdraw_approved',
+          amount: withdraw.amount,
+          time: new Date().toISOString()
+        });
+        await redis.set(`user:${googleId}`, JSON.stringify(user));
+      }
+      
+      await redis.del(withdrawKey);
+      return res.status(200).json({ success: true });
+    }
+    
+    if (req.url.includes('/api/admin/withdrawal/reject') && req.method === 'POST') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const { withdrawalId } = req.body;
+      await redis.del(`withdraw:${withdrawalId}`);
+      return res.status(200).json({ success: true });
+    }
+    
+    if (req.url.includes('/api/admin/promo/list') && req.method === 'GET') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const promos = [];
+      const keys = await redis.keys('promo:*');
+      for (const key of keys) {
+        const promoStr = await redis.get(key);
+        if (promoStr) {
+          promos.push(JSON.parse(promoStr));
+        }
+      }
+      return res.status(200).json(promos);
+    }
+    
+    if (req.url.includes('/api/withdraw/pending') && req.method === 'GET') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const withdrawals = [];
+      const keys = await redis.keys('withdraw:*');
+      for (const key of keys) {
+        const withdrawStr = await redis.get(key);
+        if (withdrawStr) {
+          const withdraw = JSON.parse(withdrawStr);
+          withdrawals.push({ id: key.replace('withdraw:', ''), ...withdraw });
+        }
+      }
+      return res.status(200).json(withdrawals);
+    }
+    
+    if (req.url.includes('/api/deposit/pending') && req.method === 'GET') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const deposits = [];
+      const keys = await redis.keys('deposit:*');
+      for (const key of keys) {
+        const depositStr = await redis.get(key);
+        if (depositStr) {
+          const deposit = JSON.parse(depositStr);
+          deposits.push({ id: key.replace('deposit:', ''), ...deposit });
+        }
+      }
+      return res.status(200).json(deposits);
+    }
+    
+    if (req.url.includes('/api/deposit/approve') && req.method === 'POST') {
+      const adminToken = req.headers['x-admin-token'];
+      if (!adminToken || adminToken !== Buffer.from(process.env.ADMIN_PASSWORD || 'kerimpro', 'base64').toString()) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const { depositId } = req.body;
+      const depositKey = `deposit:${depositId}`;
+      const depositStr = await redis.get(depositKey);
+      if (!depositStr) {
+        return res.status(404).json({ error: 'Deposit not found' });
+      }
+      
+      const deposit = JSON.parse(depositStr);
+      const userStr = await redis.get(`user:${deposit.googleId}`);
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        user.balance += deposit.amount;
+        user.history.push({
+          type: 'deposit_approved',
+          amount: deposit.amount,
+          time: new Date().toISOString()
+        });
+        await redis.set(`user:${deposit.googleId}`, JSON.stringify(user));
+      }
+      
+      await redis.del(depositKey);
+      return res.status(200).json({ success: true });
+    }
+    
+    // Game routes
+    if (req.url.includes('/api/crates/open') && req.method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
+      
+      const { cost, wonItem } = req.body;
+      const userStr = await redis.get(`user:${googleId}`);
+      if (!userStr) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const user = JSON.parse(userStr);
+      user.balance -= cost;
+      user.inventory.push({ ...wonItem, timestamp: new Date().toISOString() });
+      user.totalWagered += cost;
+      user.totalWon += wonItem.value;
+      user.history.push({
+        type: 'crate',
+        item: wonItem.name,
+        won: true,
+        amount: wonItem.value,
+        value: wonItem.value,
+        time: new Date().toISOString()
+      });
+      
+      await redis.set(`user:${googleId}`, JSON.stringify(user));
+      return res.status(200).json(user);
+    }
+    
+    if (req.url.includes('/api/mines/play') && req.method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
+      
+      const { bet, minesCount, won, multiplier } = req.body;
+      const userStr = await redis.get(`user:${googleId}`);
+      if (!userStr) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const user = JSON.parse(userStr);
+      user.totalWagered += bet;
       
       if (won) {
-        // User bet 100, won 200. Profit 100.
-        // Balance should be: old - 100 + 200 = old + 100.
-        // So we apply: balance = balance - bet + (bet * multiplier)
-        user.balance = user.balance - bet + (bet * multiplier);
+        const win = Math.floor(bet * multiplier);
+        user.balance += win;
+        user.totalWon += win;
+        user.history.push({
+          type: 'mines',
+          won: true,
+          amount: win,
+          multiplier,
+          time: new Date().toISOString()
+        });
       } else {
-        user.balance -= bet;
+        user.history.push({
+          type: 'mines',
+          won: false,
+          amount: bet,
+          bet,
+          time: new Date().toISOString()
+        });
       }
-    } else {
-      user.balance -= bet;
+      
+      await redis.set(`user:${googleId}`, JSON.stringify(user));
+      return res.status(200).json(user);
     }
     
-    if (user.balance < 0) user.balance = 0;
-    
-    await redis.set(`user:${req.user.googleId}`, JSON.stringify(user));
-    res.json({ user });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- PROMO ROUTES ---
-
-app.post('/api/promo/redeem', authenticate, async (req, res) => {
-  const { code } = req.body;
-  try {
-    const redis = await getRedis();
-    const promoStr = await redis.get(`promo:${code}`);
-    if (!promoStr) return res.status(404).json({ error: 'Invalid code' });
-    
-    const promo = JSON.parse(promoStr);
-    if (promo.uses >= promo.maxUses) return res.status(400).json({ error: 'Code expired' });
-    
-    const hasUsed = await redis.sIsMember(`user:${req.user.googleId}:promos`, code);
-    if (hasUsed) return res.status(400).json({ error: 'Already redeemed' });
-
-    const userStr = await redis.get(`user:${req.user.googleId}`);
-    const user = JSON.parse(userStr);
-    
-    user.balance += parseFloat(promo.amount);
-    promo.uses += 1;
-
-    await redis.set(`user:${req.user.googleId}`, JSON.stringify(user));
-    await redis.set(`promo:${code}`, JSON.stringify(promo));
-    await redis.sAdd(`user:${req.user.googleId}:promos`, code);
-
-    res.json({ success: true, amount: promo.amount, balance: user.balance });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/promo/list', adminAuth, async (req, res) => {
-  try {
-    const redis = await getRedis();
-    const keys = await redis.keys('promo:*');
-    const promos = [];
-    for (const key of keys) {
-      const p = await redis.get(key);
-      if (p) promos.push(JSON.parse(p));
-    }
-    res.json(promos);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- WITHDRAW ROUTES ---
-
-app.post('/api/withdraw/request', authenticate, async (req, res) => {
-  const { amount, robloxUsername } = req.body;
-  try {
-    const redis = await getRedis();
-    const userStr = await redis.get(`user:${req.user.googleId}`);
-    const user = JSON.parse(userStr);
-    
-    if (user.balance < amount) return res.status(400).json({ error: 'Insufficient balance' });
-    
-    user.balance -= amount;
-    await redis.set(`user:${req.user.googleId}`, JSON.stringify(user));
-    
-    const withdrawal = {
-      id: Math.random().toString(36).substr(2, 9),
-      googleId: user.googleId,
-      name: user.name,
-      robloxUsername,
-      amount,
-      status: 'pending',
-      timestamp: new Date().toISOString()
-    };
-    
-    // Add to specific withdrawal list or just a global list
-    // Storing as a list of strings
-    await redis.rPush('withdrawals', JSON.stringify(withdrawal));
-    
-    res.json({ success: true, user });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/withdraw/pending', adminAuth, async (req, res) => {
-  try {
-    const redis = await getRedis();
-    const list = await redis.lRange('withdrawals', 0, -1);
-    const withdrawals = list.map(item => JSON.parse(item)).filter(w => w.status === 'pending');
-    res.json(withdrawals);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- ADMIN ROUTES ---
-
-app.post('/api/admin/verify', (req, res) => {
-  const { password } = req.body;
-  if (password === ADMIN_PASSWORD) {
-    res.json({ token: ADMIN_PASSWORD });
-  } else {
-    res.status(401).json({ error: 'Invalid password' });
-  }
-});
-
-app.get('/api/admin/users', adminAuth, async (req, res) => {
-  try {
-    const redis = await getRedis();
-    const userIds = await redis.sMembers('users');
-    const users = [];
-    for (const id of userIds) {
-      const u = await redis.get(`user:${id}`);
-      if (u) users.push(JSON.parse(u));
-    }
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/admin/add-balance', adminAuth, async (req, res) => {
-  const { googleId, amount } = req.body;
-  try {
-    const redis = await getRedis();
-    const userStr = await redis.get(`user:${googleId}`);
-    if (!userStr) return res.status(404).json({ error: 'User not found' });
-    
-    const user = JSON.parse(userStr);
-    user.balance += amount;
-    await redis.set(`user:${googleId}`, JSON.stringify(user));
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/admin/promo/create', adminAuth, async (req, res) => {
-  const { code, amount, maxUses } = req.body;
-  try {
-    const redis = await getRedis();
-    const promo = {
-      code,
-      amount: parseFloat(amount),
-      maxUses: parseInt(maxUses),
-      uses: 0,
-      createdAt: new Date().toISOString()
-    };
-    await redis.set(`promo:${code}`, JSON.stringify(promo));
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/admin/withdrawal/approve', adminAuth, async (req, res) => {
-  const { withdrawalId } = req.body;
-  try {
-    const redis = await getRedis();
-    const list = await redis.lRange('withdrawals', 0, -1);
-    const withdrawals = list.map(item => JSON.parse(item));
-    
-    const index = withdrawals.findIndex(w => w.id === withdrawalId);
-    if (index === -1) return res.status(404).json({ error: 'Withdrawal not found' });
-    
-    withdrawals[index].status = 'approved';
-    
-    // Update the list in Redis (Delete all and re-add or update at index)
-    // LSET index value
-    await redis.lSet('withdrawals', index, JSON.stringify(withdrawals[index]));
-    
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/admin/withdrawal/reject', adminAuth, async (req, res) => {
-  const { withdrawalId } = req.body;
-  try {
-    const redis = await getRedis();
-    const list = await redis.lRange('withdrawals', 0, -1);
-    const withdrawals = list.map(item => JSON.parse(item));
-    
-    const index = withdrawals.findIndex(w => w.id === withdrawalId);
-    if (index === -1) return res.status(404).json({ error: 'Withdrawal not found' });
-    
-    const withdrawal = withdrawals[index];
-    withdrawal.status = 'rejected';
-    
-    // Refund the user
-    const userStr = await redis.get(`user:${withdrawal.googleId}`);
-    if (userStr) {
+    if (req.url.includes('/api/towers/play') && req.method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
+      
+      const { bet, difficulty, won, multiplier } = req.body;
+      const userStr = await redis.get(`user:${googleId}`);
+      if (!userStr) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
       const user = JSON.parse(userStr);
-      user.balance += withdrawal.amount;
-      await redis.set(`user:${withdrawal.googleId}`, JSON.stringify(user));
+      user.totalWagered += bet;
+      
+      if (won) {
+        const win = Math.floor(bet * multiplier);
+        user.balance += win;
+        user.totalWon += win;
+        user.history.push({
+          type: 'towers',
+          won: true,
+          amount: win,
+          multiplier,
+          time: new Date().toISOString()
+        });
+      } else {
+        user.history.push({
+          type: 'towers',
+          won: false,
+          amount: bet,
+          bet,
+          time: new Date().toISOString()
+        });
+      }
+      
+      await redis.set(`user:${googleId}`, JSON.stringify(user));
+      return res.status(200).json(user);
     }
     
-    await redis.lSet('withdrawals', index, JSON.stringify(withdrawal));
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (req.url.includes('/api/inventory/sell') && req.method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
+      
+      const { itemIndex } = req.body;
+      const userStr = await redis.get(`user:${googleId}`);
+      if (!userStr) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const user = JSON.parse(userStr);
+      if (itemIndex >= user.inventory.length || user.inventory[itemIndex].sold) {
+        return res.status(400).json({ error: 'Invalid item' });
+      }
+      
+      const item = user.inventory[itemIndex];
+      const sellValue = Math.floor(item.value * 0.7);
+      user.balance += sellValue;
+      item.sold = true;
+      user.history.push({
+        type: 'sell',
+        item: item.name,
+        amount: sellValue,
+        time: new Date().toISOString()
+      });
+      
+      await redis.set(`user:${googleId}`, JSON.stringify(user));
+      return res.status(200).json(user);
+    }
+    
+    if (req.url.includes('/api/promo/redeem') && req.method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
+      
+      const { code } = req.body;
+      const promoKey = `promo:${code}`;
+      const promoStr = await redis.get(promoKey);
+      if (!promoStr) {
+        return res.status(404).json({ error: 'Invalid code' });
+      }
+      
+      const promo = JSON.parse(promoStr);
+      if (promo.uses >= promo.maxUses) {
+        return res.status(400).json({ error: 'Code max uses reached' });
+      }
+      
+      // Check if user already used this code
+      const userStr = await redis.get(`user:${googleId}`);
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        const usedCodes = user.usedPromoCodes || [];
+        if (usedCodes.includes(code)) {
+          return res.status(400).json({ error: 'Code already used' });
+        }
+        
+        user.balance += promo.amount;
+        user.history.push({
+          type: 'promo',
+          code,
+          amount: promo.amount,
+          time: new Date().toISOString()
+        });
+        usedCodes.push(code);
+        user.usedPromoCodes = usedCodes;
+        
+        promo.uses++;
+        await redis.set(promoKey, JSON.stringify(promo));
+        await redis.set(`user:${googleId}`, JSON.stringify(user));
+        
+        return res.status(200).json({ balance: user.balance, amount: promo.amount });
+      }
+      
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (req.url.includes('/api/promo/list') && req.method === 'GET') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const promos = [];
+      const keys = await redis.keys('promo:*');
+      for (const key of keys) {
+        const promoStr = await redis.get(key);
+        if (promoStr) {
+          promos.push(JSON.parse(promoStr));
+        }
+      }
+      return res.status(200).json(promos);
+    }
+    
+    if (req.url.includes('/api/withdraw/request') && req.method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
+      
+      const { amount, robloxUsername } = req.body;
+      const userStr = await redis.get(`user:${googleId}`);
+      if (!userStr) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const user = JSON.parse(userStr);
+      if (amount > user.balance) {
+        return res.status(400).json({ error: 'Insufficient balance' });
+      }
+      
+      const withdrawId = `withdraw:${Date.now()}`;
+      await redis.set(withdrawId, JSON.stringify({
+        googleId, robloxUsername, amount,
+        timestamp: new Date().toISOString(),
+        status: 'pending'
+      }));
+      
+      user.balance -= amount;
+      user.history.push({
+        type: 'withdraw',
+        amount,
+        time: new Date().toISOString()
+      });
+      
+      await redis.set(`user:${googleId}`, JSON.stringify(user));
+      return res.status(200).json(user);
+    }
+    
+    if (req.url.includes('/api/deposit/request') && req.method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      
+      const token = authHeader.split(' ')[1];
+      const decoded = JSON.parse(Buffer.from(token, 'base64').toString());
+      const { googleId } = decoded;
+      
+      const { amount, caelusUsername } = req.body;
+      const depositId = `deposit:${Date.now()}`;
+      await redis.set(depositId, JSON.stringify({
+        googleId, caelusUsername, amount,
+        timestamp: new Date().toISOString(),
+        status: 'pending'
+      }));
+      
+      return res.status(200).json({ success: true });
+    }
+    
+    if (req.url.includes('/api/robux-stock')) {
+      return res.status(200).json({ stock: 150000 });
+    }
+    
+    return res.status(404).json({ error: 'Not found' });
+  } catch (error) {
+    console.error('API Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
-});
-
-// Health check
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-
-export default app;
+}

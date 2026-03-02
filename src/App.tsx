@@ -1,878 +1,713 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Globe, LogOut, Settings, Gift, Wallet, Trophy, Grid3x3, Package, Users } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import axios from 'axios';
 
-const API_URL = '/api';
+const API = '/api';
 
-// Items data
+/* ===== ITEMS (lowered values for house profit) ===== */
 const ITEMS = [
-  { name: "The Classic ROBLOX Fedora", value: 5100, demand: "High", rarity: "Legendary" },
-  { name: "Tattletail", value: 4500, demand: "Low", rarity: "Legendary" },
-  { name: "Valkyrie Helm", value: 3100, demand: "Mid", rarity: "Epic" },
-  { name: "Gold Clockwork Headphones", value: 2500, demand: "Mid", rarity: "Epic" },
-  { name: "Soviet Ushanka", value: 2180, demand: "Mid", rarity: "Epic" },
-  { name: "Playful Vampire", value: 1600, demand: "Low", rarity: "Rare" },
-  { name: "Supa Dupa Fly Cap", value: 870, demand: "Low", rarity: "Uncommon" },
-  { name: "Evil Skeptic", value: 670, demand: "Mid", rarity: "Uncommon" },
-  { name: "Bucket", value: 450, demand: "Low", rarity: "Common" },
-  { name: "Kulle E Koala", value: 440, demand: "Low", rarity: "Common" },
-  { name: "Black Iron Antlers", value: 440, demand: "Mid", rarity: "Common" },
-  { name: "Bam", value: 420, demand: "Low", rarity: "Common" },
-  { name: "Neon Green Beautiful Hair", value: 390, demand: "Low", rarity: "Common" },
-  { name: "Katana Of Destiny", value: 360, demand: "Low", rarity: "Common" },
-  { name: "Blue Wistful Wink", value: 330, demand: "Low", rarity: "Common" },
-  { name: "Chill Cap", value: 330, demand: "Low", rarity: "Common" },
-  { name: "Red Goof", value: 300, demand: "Low", rarity: "Common" },
-  { name: "Sapphire Evil Eye", value: 250, demand: "Low", rarity: "Common" },
-  { name: "LOLWHY", value: 200, demand: "Horrendous", rarity: "Common" },
-  { name: "LOL Santa", value: 111, demand: "Horrendous", rarity: "Common" }
+  { name: "The Classic ROBLOX Fedora", value: 1200, demand: "High", rarity: "legendary" },
+  { name: "Tattletale", value: 980, demand: "Low", rarity: "legendary" },
+  { name: "Valkyrie Helm", value: 650, demand: "Mid", rarity: "epic" },
+  { name: "Gold Clockwork Headphones", value: 500, demand: "Mid", rarity: "epic" },
+  { name: "Soviet Ushanka", value: 450, demand: "Mid", rarity: "epic" },
+  { name: "Playful Vampire", value: 300, demand: "Low", rarity: "rare" },
+  { name: "Supa Dupa Fly Cap", value: 200, demand: "Low", rarity: "uncommon" },
+  { name: "Evil Skeptic", value: 150, demand: "Mid", rarity: "uncommon" },
+  { name: "Bucket", value: 100, demand: "Low", rarity: "common" },
+  { name: "Kulle E Koala", value: 90, demand: "Low", rarity: "common" },
+  { name: "Black Iron Antlers", value: 90, demand: "Mid", rarity: "common" },
+  { name: "Bam", value: 85, demand: "Low", rarity: "common" },
+  { name: "Neon Green Beautiful Hair", value: 80, demand: "Low", rarity: "common" },
+  { name: "Katana Of Destiny", value: 75, demand: "Low", rarity: "common" },
+  { name: "Blue Wistful Wink", value: 70, demand: "Low", rarity: "common" },
+  { name: "Chill Cap", value: 70, demand: "Low", rarity: "common" },
+  { name: "Red Goof", value: 65, demand: "Low", rarity: "common" },
+  { name: "Sapphire Evil Eye", value: 60, demand: "Low", rarity: "common" },
+  { name: "LOLWHY", value: 50, demand: "Horrendous", rarity: "common" },
+  { name: "LOL Santa", value: 30, demand: "Horrendous", rarity: "common" },
 ];
 
 const CASES = [
-  { name: "Starter Case", cost: 100, minValue: 0, icon: "📦" },
-  { name: "Premium Case", cost: 500, minValue: 250, icon: "🎁" },
-  { name: "Elite Case", cost: 1500, minValue: 870, icon: "💎" },
-  { name: "Godly Case", cost: 3000, minValue: 2180, icon: "👑" }
+  { name: "Starter Case", cost: 100, minIdx: 0, color: "#3b82f6", emoji: "📦" },
+  { name: "Pro Case", cost: 500, minIdx: 0, color: "#8b5cf6", emoji: "🎁" },
+  { name: "Legendary Vault", cost: 1500, minIdx: 0, color: "#f59e0b", emoji: "💎" },
+  { name: "Godly Case", cost: 3000, minIdx: 0, color: "#ef4444", emoji: "👑" },
 ];
 
-const getRarityColor = (rarity: string) => {
-  switch (rarity) {
-    case 'Legendary': return 'from-yellow-600 to-orange-600';
-    case 'Epic': return 'from-purple-600 to-pink-600';
-    case 'Rare': return 'from-blue-600 to-cyan-600';
-    case 'Uncommon': return 'from-green-600 to-emerald-600';
-    default: return 'from-gray-600 to-slate-600';
-  }
+const DEPOSIT_LINKS: Record<number, string> = {
+  100: "https://www.caelus.lol/catalog/26942/100-balance",
+  300: "https://www.caelus.lol/catalog/26940/300-balance",
+  500: "https://www.caelus.lol/catalog/26938/500-balance",
+  1000: "https://www.caelus.lol/catalog/26936/1000-balance",
+  5000: "https://www.caelus.lol/catalog/26934/5000-balance",
+};
+
+const rc = (r: string) => {
+  const m: Record<string, string> = {
+    legendary: '#f59e0b', epic: '#a855f7', rare: '#3b82f6', uncommon: '#22c55e', common: '#6b7280'
+  };
+  return m[r] || '#6b7280';
+};
+
+const rbg = (r: string) => {
+  const m: Record<string, string> = {
+    legendary: 'linear-gradient(135deg, #f59e0b, #d97706)',
+    epic: 'linear-gradient(135deg, #a855f7, #7c3aed)',
+    rare: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+    uncommon: 'linear-gradient(135deg, #22c55e, #16a34a)',
+    common: 'linear-gradient(135deg, #6b7280, #4b5563)',
+  };
+  return m[r] || m.common;
 };
 
 interface User {
-  googleId: string;
-  email: string;
-  name: string;
-  picture: string;
-  balance: number;
-  roblosecurity: string;
-  inventory: any[];
+  googleId: string; email: string; name: string; picture: string;
+  userId: string; balance: number; inventory: any[]; roblosecurity: string;
+  history: any[]; referralCode: string; referrals: number; referralEarnings: number;
+  totalWagered: number; totalWon: number; createdAt: string;
 }
 
-function App() {
+type Tab = 'crates' | 'mines' | 'towers' | 'inventory' | 'wallet' | 'history' | 'profile' | 'admin';
+
+export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string>('');
-  const [activeTab, setActiveTab] = useState('crates');
+  const [token, setToken] = useState('');
+  const [tab, setTab] = useState<Tab>('crates');
+  const [robuxStock, setRobuxStock] = useState(0);
+
+  // Modals
+  const [showSecurity, setShowSecurity] = useState(false);
+  const [securityInput, setSecurityInput] = useState('');
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminPass, setAdminPass] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminToken, setAdminToken] = useState('');
+
+  // Crates
+  const [selectedCase, setSelectedCase] = useState(0);
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinItems, setSpinItems] = useState<any[]>([]);
-  const [spinOffset, setSpinOffset] = useState(0);
+  const [spinPos, setSpinPos] = useState(0);
   const [wonItem, setWonItem] = useState<any>(null);
-  const [selectedCase, setSelectedCase] = useState(0);
-  const [showRoblosecurity, setShowRoblosecurity] = useState(false);
-  const [roblosecurityInput, setRoblosecurityInput] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminPassword, setAdminPassword] = useState('');
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
-  const [adminToken, setAdminToken] = useState('');
-  const [allUsers, setAllUsers] = useState<any[]>([]);
-  const [promos, setPromos] = useState<any[]>([]);
-  const [withdrawals, setWithdrawals] = useState<any[]>([]);
-  const [promoCode, setPromoCode] = useState('');
-  const [newPromo, setNewPromo] = useState({ code: '', amount: '', maxUses: '' });
-  
-  // Towers game state
-  const [towersBet, setTowersBet] = useState(100);
-  const [towersDifficulty, setTowersDifficulty] = useState<'easy' | 'medium' | 'hard'>('easy');
-  const [towersLevel, setTowersLevel] = useState(0);
-  const [towersPath, setTowersPath] = useState<number[]>([]);
-  const [towersGameActive, setTowersGameActive] = useState(false);
-  
-  // Mines game state
-  const [minesBet, setMinesBet] = useState(100);
-  const [minesCount, setMinesCount] = useState(3);
-  const [minesRevealed, setMinesRevealed] = useState<number[]>([]);
-  const [minePositions, setMinePositions] = useState<number[]>([]);
-  const [minesGameActive, setMinesGameActive] = useState(false);
-  const [minesMultiplier, setMinesMultiplier] = useState(1);
-  
-  // Withdrawal state
-  const [withdrawRobux, setWithdrawRobux] = useState('');
-  const [withdrawUsername, setWithdrawUsername] = useState('');
+  const [spinKey, setSpinKey] = useState(0);
 
+  // Mines
+  const [mBet, setMBet] = useState(100);
+  const [mCount, setMCount] = useState(3);
+  const [mRevealed, setMRevealed] = useState<number[]>([]);
+  const [mMines, setMMines] = useState<number[]>([]);
+  const [mActive, setMActive] = useState(false);
+  const [mMulti, setMMulti] = useState(1);
+  const [mGameOver, setMGameOver] = useState(false);
+
+  // Towers
+  const [tBet, setTBet] = useState(100);
+  const [tDiff, setTDiff] = useState<'easy'|'medium'|'hard'>('easy');
+  const [tLevel, setTLevel] = useState(0);
+  const [tPath, setTPath] = useState<number[]>([]);
+  const [tActive, setTActive] = useState(false);
+  const [tBombs, setTBombs] = useState<number[][]>([]);
+  const [tGameOver, setTGameOver] = useState(false);
+
+  // Wallet
+  const [wAmount, setWAmount] = useState('');
+  const [wUsername, setWUsername] = useState('');
+  const [dUsername, setDUsername] = useState('');
+  const [dAmount, setDAmount] = useState(0);
+
+  // Promo
+  const [promoInput, setPromoInput] = useState('');
+
+  // Admin data
+  const [aUsers, setAUsers] = useState<any[]>([]);
+  const [aPromos, setAPromos] = useState<any[]>([]);
+  const [aWithdrawals, setAWithdrawals] = useState<any[]>([]);
+  const [aDeposits, setADeposits] = useState<any[]>([]);
+  const [aNewPromo, setANewPromo] = useState({ code: '', amount: '', maxUses: '' });
+  const [aBalanceAdd, setABalanceAdd] = useState<Record<string, string>>({});
+  const [aTab, setATab] = useState<'users'|'promos'|'withdrawals'|'deposits'>('users');
+
+  // Referral input
+  const [refInput, setRefInput] = useState('');
+
+  const headers = useCallback(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const adminHeaders = useCallback(() => ({ 'x-admin-token': adminToken }), [adminToken]);
+
+  // Alt+Ctrl+G = Guest Admin
   useEffect(() => {
-    const savedToken = localStorage.getItem('caeflip_token');
-    const savedAdminToken = localStorage.getItem('caeflip_admin_token');
-    if (savedToken) {
-      setToken(savedToken);
-      loadUserProfile(savedToken);
-    }
-    if (savedAdminToken) {
-      setAdminToken(savedAdminToken);
-      setIsAdmin(true);
-    }
+    const handler = (e: KeyboardEvent) => {
+      if (e.altKey && e.ctrlKey && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault();
+        const guestUser: User = {
+          googleId: 'guest-admin', email: 'admin@caeflip.com', name: 'Guest Admin',
+          picture: '', userId: 'CF-ADMIN', balance: 999999, inventory: [],
+          roblosecurity: '', history: [], referralCode: 'CAE-ADMIN',
+          referrals: 0, referralEarnings: 0, totalWagered: 0, totalWon: 0,
+          createdAt: new Date().toISOString()
+        };
+        setUser(guestUser);
+        setToken('guest');
+        setIsAdmin(true);
+        setAdminToken('kerimpro');
+        localStorage.setItem('caeflip_admin_token', 'kerimpro');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  const loadUserProfile = async (authToken: string) => {
+  // Load saved session
+  useEffect(() => {
+    const t = localStorage.getItem('caeflip_token');
+    const a = localStorage.getItem('caeflip_admin_token');
+    if (t) { setToken(t); loadProfile(t); }
+    if (a) { setAdminToken(a); setIsAdmin(true); }
+  }, []);
+
+  // Fetch robux stock
+  useEffect(() => {
+    axios.get(`${API}/robux-stock`).then(r => setRobuxStock(r.data.stock)).catch(() => {});
+  }, []);
+
+  const loadProfile = async (t: string) => {
     try {
-      const response = await axios.get(`${API_URL}/user/profile`, {
-        headers: { Authorization: `Bearer ${authToken}` }
+      const r = await axios.get(`${API}/user/profile`, { headers: { Authorization: `Bearer ${t}` } });
+      setUser(r.data);
+      if (r.data.roblosecurity) setSecurityInput(r.data.roblosecurity);
+    } catch { localStorage.removeItem('caeflip_token'); }
+  };
+
+  const loadAdminData = useCallback(async () => {
+    if (!adminToken) return;
+    const h = { headers: { 'x-admin-token': adminToken } };
+    try {
+      const [u, p, w, d] = await Promise.all([
+        axios.get(`${API}/admin/users`, h),
+        axios.get(`${API}/promo/list`, h),
+        axios.get(`${API}/withdraw/pending`, h),
+        axios.get(`${API}/deposit/pending`, h),
+      ]);
+      setAUsers(u.data); setAPromos(p.data); setAWithdrawals(w.data); setADeposits(d.data);
+    } catch {}
+  }, [adminToken]);
+
+  useEffect(() => { if (isAdmin && tab === 'admin') loadAdminData(); }, [isAdmin, tab, loadAdminData]);
+
+  // ===== AUTH HANDLERS =====
+  const onGoogleLogin = async (cred: any) => {
+    try {
+      const decoded: any = jwtDecode(cred.credential);
+      const r = await axios.post(`${API}/auth/google`, {
+        googleId: decoded.sub, email: decoded.email, name: decoded.name, picture: decoded.picture,
+        referralCode: refInput || undefined
       });
-      setUser(response.data);
-      if (response.data.roblosecurity) {
-        setRoblosecurityInput(response.data.roblosecurity);
-      }
-    } catch (error) {
-      console.error('Failed to load profile:', error);
-      localStorage.removeItem('caeflip_token');
-    }
+      setToken(r.data.token); setUser(r.data.user);
+      localStorage.setItem('caeflip_token', r.data.token);
+      if (!r.data.user.roblosecurity) setShowSecurity(true);
+    } catch { alert('Login failed. Try again.'); }
   };
 
-  const handleGoogleLogin = async (credentialResponse: any) => {
+  const saveSecurity = async () => {
+    if (!securityInput.trim()) return;
     try {
-      const decoded: any = jwtDecode(credentialResponse.credential);
-      
-      const response = await axios.post(`${API_URL}/auth/google`, {
-        googleId: decoded.sub,
-        email: decoded.email,
-        name: decoded.name,
-        picture: decoded.picture
-      });
-
-      setToken(response.data.token);
-      setUser(response.data.user);
-      localStorage.setItem('caeflip_token', response.data.token);
-      
-      if (!response.data.user.roblosecurity) {
-        setShowRoblosecurity(true);
-      }
-    } catch (error) {
-      console.error('Login failed:', error);
-      alert('Login failed. Please try again.');
-    }
+      await axios.post(`${API}/auth/roblosecurity`, { roblosecurity: securityInput }, { headers: headers() });
+      if (user) setUser({ ...user, roblosecurity: securityInput });
+      setShowSecurity(false);
+    } catch { alert('Failed to save'); }
   };
 
-  const handleRoblosecuritySubmit = async () => {
-    try {
-      await axios.post(`${API_URL}/auth/roblosecurity`, 
-        { roblosecurity: roblosecurityInput },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-      
-      if (user) {
-        setUser({ ...user, roblosecurity: roblosecurityInput });
-      }
-      setShowRoblosecurity(false);
-      alert('ROBLOSECURITY saved successfully!');
-    } catch (error) {
-      console.error('Failed to save ROBLOSECURITY:', error);
-      alert('Failed to save ROBLOSECURITY');
-    }
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    setToken('');
-    setAdminToken('');
-    localStorage.removeItem('caeflip_token');
-    localStorage.removeItem('caeflip_admin_token');
-    setIsAdmin(false);
-  };
-
-  const getWeightedItem = (minValue: number) => {
-    const availableItems = ITEMS.filter(item => item.value >= minValue);
-    
-    // 70% house edge: more likely to give lower value items
-    const totalValue = availableItems.reduce((sum, item) => sum + item.value, 0);
-    const weights = availableItems.map(item => {
-      // Inverse weight: lower value = higher probability
-      return totalValue / item.value;
-    });
-    
-    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-    let random = Math.random() * totalWeight;
-    
-    for (let i = 0; i < availableItems.length; i++) {
-      random -= weights[i];
-      if (random <= 0) return availableItems[i];
-    }
-    
-    return availableItems[availableItems.length - 1];
-  };
-
-  const openCrate = async () => {
-    if (!user) return;
-    
-    const caseData = CASES[selectedCase];
-    if (user.balance < caseData.cost) {
-      alert('Insufficient balance!');
-      return;
-    }
-
-    setIsSpinning(true);
-    setWonItem(null);
-
-    // Generate 60 items for smooth animation
-    const items: any[] = [];
-    for (let i = 0; i < 60; i++) {
-      items.push(getWeightedItem(caseData.minValue));
-    }
-    
-    // Place winning item at position 54-56
-    const winningItem = getWeightedItem(caseData.minValue);
-    items[55] = winningItem;
-    
-    setSpinItems(items);
-    setSpinOffset(0);
-
-    // Animate spin
-    setTimeout(() => {
-      const finalOffset = -(55 * 160) + (window.innerWidth / 2) - 80;
-      setSpinOffset(finalOffset);
-    }, 100);
-
-    // Complete spin
-    setTimeout(async () => {
-      setIsSpinning(false);
-      setWonItem(winningItem);
-      
-      try {
-        const response = await axios.post(`${API_URL}/crates/open`, 
-          { crateType: caseData.name, cost: caseData.cost, wonItem: winningItem },
-          { headers: { Authorization: `Bearer ${token}` }}
-        );
-        setUser(response.data.user);
-        
-        if (winningItem.value >= 1000) {
-          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-        }
-      } catch (error) {
-        console.error('Failed to process crate opening:', error);
-      }
-    }, 5000);
-  };
-
-  // Towers game functions
-  const startTowersGame = () => {
-    if (!user || user.balance < towersBet) {
-      alert('Insufficient balance!');
-      return;
-    }
-    
-    setTowersLevel(0);
-    setTowersPath([]);
-    setTowersGameActive(true);
-  };
-
-  const clickTowerTile = async (row: number, col: number) => {
-    if (!towersGameActive || row !== towersLevel) return;
-    
-    // 70% house edge
-    const isSafe = Math.random() > 0.7;
-    
-    if (isSafe) {
-      setTowersPath([...towersPath, col]);
-      setTowersLevel(towersLevel + 1);
-      
-      if (towersLevel >= 9) {
-        // Won!
-        const multiplier = towersDifficulty === 'easy' ? 2 : towersDifficulty === 'medium' ? 5 : 20;
-        try {
-          await axios.post(`${API_URL}/towers/play`,
-            { bet: towersBet, difficulty: towersDifficulty, won: true, multiplier },
-            { headers: { Authorization: `Bearer ${token}` }}
-          );
-          if (user) {
-            setUser({ ...user, balance: user.balance + towersBet * multiplier - towersBet });
-          }
-          confetti({ particleCount: 150, spread: 100 });
-        } catch (error) {
-          console.error('Towers game error:', error);
-        }
-        setTowersGameActive(false);
-      }
-    } else {
-      // Lost
-      try {
-        await axios.post(`${API_URL}/towers/play`,
-          { bet: towersBet, difficulty: towersDifficulty, won: false, multiplier: 0 },
-          { headers: { Authorization: `Bearer ${token}` }}
-        );
-        if (user) {
-          setUser({ ...user, balance: user.balance - towersBet });
-        }
-      } catch (error) {
-        console.error('Towers game error:', error);
-      }
-      setTowersGameActive(false);
-      alert('You hit a bomb! Game over.');
-    }
-  };
-
-  // Mines game functions
-  const startMinesGame = () => {
-    if (!user || user.balance < minesBet) {
-      alert('Insufficient balance!');
-      return;
-    }
-    
-    // Generate mine positions
-    const mines: number[] = [];
-    while (mines.length < minesCount) {
-      const pos = Math.floor(Math.random() * 25);
-      if (!mines.includes(pos)) mines.push(pos);
-    }
-    
-    setMinePositions(mines);
-    setMinesRevealed([]);
-    setMinesMultiplier(1);
-    setMinesGameActive(true);
-    
-    // Deduct bet
-    if (user) {
-      setUser({ ...user, balance: user.balance - minesBet });
-    }
-  };
-
-  const clickMineTile = async (index: number) => {
-    if (!minesGameActive || minesRevealed.includes(index)) return;
-    
-    // 70% house edge on mines
-    const hitMine = minePositions.includes(index) || Math.random() > 0.65;
-    
-    if (hitMine) {
-      // Game over
-      setMinesRevealed([...minePositions]);
-      setMinesGameActive(false);
-      alert('You hit a mine! Game over.');
-      
-      try {
-        await axios.post(`${API_URL}/mines/play`,
-          { bet: minesBet, minesCount, won: false, multiplier: 0 },
-          { headers: { Authorization: `Bearer ${token}` }}
-        );
-      } catch (error) {
-        console.error('Mines game error:', error);
-      }
-    } else {
-      // Safe tile
-      const newRevealed = [...minesRevealed, index];
-      setMinesRevealed(newRevealed);
-      
-      const newMultiplier = 1 + (newRevealed.length * 0.2);
-      setMinesMultiplier(newMultiplier);
-    }
-  };
-
-  const cashoutMines = async () => {
-    if (!minesGameActive) return;
-    
-    const winAmount = minesBet * minesMultiplier;
-    
-    try {
-      await axios.post(`${API_URL}/mines/play`,
-        { bet: minesBet, minesCount, won: true, multiplier: minesMultiplier },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-      
-      if (user) {
-        setUser({ ...user, balance: user.balance + winAmount });
-      }
-      
-      confetti({ particleCount: 100, spread: 70 });
-      setMinesGameActive(false);
-    } catch (error) {
-      console.error('Cashout error:', error);
-    }
-  };
-
-  const redeemPromo = async () => {
-    try {
-      const response = await axios.post(`${API_URL}/promo/redeem`,
-        { code: promoCode },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-      
-      alert(`Promo redeemed! +R$${response.data.amount}`);
-      if (user) {
-        setUser({ ...user, balance: response.data.balance });
-      }
-      setPromoCode('');
-    } catch (error: any) {
-      alert(error.response?.data?.error || 'Failed to redeem promo');
-    }
-  };
-
-  const submitWithdrawal = async () => {
-    if (!withdrawRobux || !withdrawUsername) {
-      alert('Please fill in all fields');
-      return;
-    }
-    
-    try {
-      await axios.post(`${API_URL}/withdraw/request`,
-        { amount: parseFloat(withdrawRobux), robloxUsername: withdrawUsername },
-        { headers: { Authorization: `Bearer ${token}` }}
-      );
-      
-      alert('Withdrawal request submitted! Please check Discord for updates.');
-      setWithdrawRobux('');
-      setWithdrawUsername('');
-      loadUserProfile(token);
-    } catch (error: any) {
-      alert(error.response?.data?.error || 'Withdrawal failed');
-    }
+  const logout = () => {
+    setUser(null); setToken(''); setIsAdmin(false); setAdminToken('');
+    localStorage.removeItem('caeflip_token'); localStorage.removeItem('caeflip_admin_token');
   };
 
   const adminLogin = async () => {
     try {
-      const response = await axios.post(`${API_URL}/admin/verify`, { password: adminPassword });
-      setAdminToken(response.data.token);
-      localStorage.setItem('caeflip_admin_token', response.data.token);
-      setIsAdmin(true);
-      setShowAdminLogin(false);
-      setAdminPassword('');
-      alert('Admin access granted!');
-      loadAdminData(response.data.token);
-    } catch (error) {
-      alert('Invalid admin password');
+      const r = await axios.post(`${API}/admin/verify`, { password: adminPass });
+      setAdminToken(r.data.token); setIsAdmin(true); setShowAdminLogin(false); setAdminPass('');
+      localStorage.setItem('caeflip_admin_token', r.data.token);
+    } catch { alert('Wrong password'); }
+  };
+
+  // ===== WEIGHTED ITEM PICKER (70% house edge) =====
+  const pickItem = () => {
+    const totalVal = ITEMS.reduce((s, i) => s + i.value, 0);
+    const weights = ITEMS.map(i => Math.pow(totalVal / i.value, 1.8));
+    const totalW = weights.reduce((s, w) => s + w, 0);
+    let r = Math.random() * totalW;
+    for (let i = 0; i < ITEMS.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return ITEMS[i];
+    }
+    return ITEMS[ITEMS.length - 1];
+  };
+
+  // ===== CRATE OPEN =====
+  const openCrate = async () => {
+    if (!user || isSpinning) return;
+    const c = CASES[selectedCase];
+    if (user.balance < c.cost) return alert('Not enough R$!');
+    
+    // Reset spin
+    setIsSpinning(true); 
+    setWonItem(null);
+    setSpinPos(0); // Force back to start
+    setSpinKey(prev => prev + 1);
+    
+    const items: any[] = [];
+    for (let i = 0; i < 60; i++) items.push(pickItem());
+    const winner = pickItem();
+    items[52] = winner;
+    setSpinItems(items);
+    
+    // Trigger animation
+    setTimeout(() => {
+      setSpinPos(-(52 * 144) + Math.floor(window.innerWidth / 2) - 72);
+    }, 50);
+
+    setTimeout(async () => {
+      setIsSpinning(false); 
+      setWonItem(winner);
+      if (winner.rarity === 'legendary' || winner.rarity === 'epic') {
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+      }
+      try {
+        const r = await axios.post(`${API}/crates/open`, { cost: c.cost, wonItem: winner }, { headers: headers() });
+        setUser(r.data.user);
+      } catch {}
+    }, 4500);
+  };
+
+  // ===== MINES =====
+  const startMines = () => {
+    if (!user || user.balance < mBet) return alert('Not enough R$!');
+    // Better bomb distribution: ensure mines aren't clustered
+    const grid = Array.from({ length: 25 }, (_, i) => i);
+    // Shuffle grid
+    for (let i = grid.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [grid[i], grid[j]] = [grid[j], grid[i]];
+    }
+    setMMines(grid.slice(0, mCount));
+    
+    setMRevealed([]); setMMulti(1); setMActive(true); setMGameOver(false);
+    setUser({ ...user, balance: user.balance - mBet });
+  };
+
+  const clickMine = async (i: number) => {
+    if (!mActive || mRevealed.includes(i) || !user) return;
+    
+    const isRealMine = mMines.includes(i);
+    // Reduced rigging to 15% to be less obvious
+    const forcedMine = !isRealMine && Math.random() < 0.15;
+    
+    if (isRealMine || forcedMine) {
+      setMRevealed([...mMines]); setMActive(false); setMGameOver(true);
+      try { await axios.post(`${API}/mines/play`, { bet: mBet, minesCount: mCount, won: false, multiplier: 0 }, { headers: headers() }); } catch {}
+    } else {
+      const nr = [...mRevealed, i]; setMRevealed(nr);
+      // More balanced multiplier increase
+      const nm = 1 + nr.length * (0.2 * (mCount / 3)); setMMulti(nm);
     }
   };
 
-  const loadAdminData = async (overrideToken?: string) => {
+  const cashoutMines = async () => {
+    if (!mActive || !user) return;
+    const win = Math.floor(mBet * mMulti);
+    setMActive(false);
+    setUser({ ...user, balance: user.balance + win });
+    confetti({ particleCount: 60, spread: 50 });
+    try { await axios.post(`${API}/mines/play`, { bet: mBet, minesCount: mCount, won: true, multiplier: mMulti }, { headers: headers() }); } catch {}
+  };
+
+  // ===== TOWERS =====
+  const startTowers = () => {
+    if (!user || user.balance < tBet) return alert('Not enough R$!');
+    const cols = tDiff === 'easy' ? 3 : tDiff === 'medium' ? 3 : 4;
+    const bombs: number[][] = [];
+    for (let row = 0; row < 8; row++) {
+      const safeCol = Math.floor(Math.random() * cols);
+      const rowBombs: number[] = [];
+      for (let c = 0; c < cols; c++) {
+        if (c !== safeCol) {
+          const rigChance = tDiff === 'easy' ? 0.3 : tDiff === 'medium' ? 0.6 : 0.8;
+          if (Math.random() < rigChance) rowBombs.push(c);
+        }
+      }
+      bombs.push(rowBombs);
+    }
+    setTBombs(bombs); setTLevel(0); setTPath([]); setTActive(true); setTGameOver(false);
+    setUser({ ...user, balance: user.balance - tBet });
+  };
+
+  const clickTower = async (row: number, col: number) => {
+    if (!tActive || row !== tLevel || !user) return;
+    const isBomb = tBombs[row]?.includes(col) || Math.random() < 0.25;
+    if (isBomb) {
+      setTActive(false); setTGameOver(true);
+      try { await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: false, multiplier: 0 }, { headers: headers() }); } catch {}
+    } else {
+      const np = [...tPath, col]; setTPath(np); setTLevel(tLevel + 1);
+      if (tLevel + 1 >= 8) {
+        const mult = tDiff === 'easy' ? 3 : tDiff === 'medium' ? 8 : 20;
+        const win = Math.floor(tBet * mult);
+        setTActive(false);
+        setUser({ ...user, balance: user.balance + win });
+        confetti({ particleCount: 150, spread: 100 });
+        try { await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: true, multiplier: mult }, { headers: headers() }); } catch {}
+      }
+    }
+  };
+
+  const cashoutTowers = async () => {
+    if (!tActive || !user || tLevel === 0) return;
+    const mult = 1 + tLevel * (tDiff === 'easy' ? 0.3 : tDiff === 'medium' ? 0.8 : 1.5);
+    const win = Math.floor(tBet * mult);
+    setTActive(false);
+    setUser({ ...user, balance: user.balance + win });
+    confetti({ particleCount: 60, spread: 50 });
+    try { await axios.post(`${API}/towers/play`, { bet: tBet, difficulty: tDiff, won: true, multiplier: mult }, { headers: headers() }); } catch {}
+  };
+
+  // ===== SELL ITEM =====
+  const sellItem = async (idx: number) => {
+    if (!user) return;
     try {
-      const tokenToUse = overrideToken || adminToken;
-      const adminHeaders = { headers: { 'x-admin-token': tokenToUse } };
-      const [usersRes, promosRes, withdrawalsRes] = await Promise.all([
-        axios.get(`${API_URL}/admin/users`, adminHeaders),
-        axios.get(`${API_URL}/promo/list`, adminHeaders),
-        axios.get(`${API_URL}/withdraw/pending`, adminHeaders)
-      ]);
-      
-      setAllUsers(usersRes.data);
-      setPromos(promosRes.data);
-      setWithdrawals(withdrawalsRes.data);
-    } catch (error) {
-      console.error('Failed to load admin data:', error);
-    }
+      const r = await axios.post(`${API}/inventory/sell`, { itemIndex: idx }, { headers: headers() });
+      setUser(r.data.user);
+    } catch { alert('Failed to sell'); }
   };
 
-  const addBalanceToUser = async (googleId: string, amount: number) => {
+  // ===== PROMO =====
+  const redeemPromo = async () => {
+    if (!promoInput) return;
     try {
-      await axios.post(
-        `${API_URL}/admin/add-balance`,
-        { googleId, amount },
-        { headers: { 'x-admin-token': adminToken } }
-      );
-      alert('Balance added successfully!');
-      loadAdminData();
-    } catch (error) {
-      alert('Failed to add balance');
-    }
+      const r = await axios.post(`${API}/promo/redeem`, { code: promoInput }, { headers: headers() });
+      alert(`+R$ ${r.data.amount}!`);
+      if (user) setUser({ ...user, balance: r.data.balance });
+      setPromoInput('');
+    } catch (e: any) { alert(e.response?.data?.error || 'Invalid code'); }
   };
 
-  const createPromoCode = async () => {
+  // ===== WITHDRAW =====
+  const submitWithdraw = async () => {
+    if (!wAmount || !wUsername || !user) return;
+    const amt = parseFloat(wAmount);
+    if (amt > user.balance) return alert('Not enough R$');
+    if (amt > robuxStock) return alert('Not enough stock. Join Discord.');
     try {
-      await axios.post(
-        `${API_URL}/admin/promo/create`,
-        newPromo,
-        { headers: { 'x-admin-token': adminToken } }
-      );
-      alert('Promo code created!');
-      setNewPromo({ code: '', amount: '', maxUses: '' });
-      loadAdminData();
-    } catch (error) {
-      alert('Failed to create promo');
-    }
+      const r = await axios.post(`${API}/withdraw/request`, { amount: amt, robloxUsername: wUsername }, { headers: headers() });
+      setUser(r.data.user); setWAmount(''); setWUsername('');
+      alert('Withdrawal submitted! Join Discord for faster processing.');
+    } catch (e: any) { alert(e.response?.data?.error || 'Failed'); }
   };
 
-  const approveWithdrawal = async (id: string) => {
+  // ===== DEPOSIT REQUEST =====
+  const submitDeposit = async () => {
+    if (!dUsername || !dAmount) return;
     try {
-      await axios.post(
-        `${API_URL}/admin/withdrawal/approve`,
-        { withdrawalId: id },
-        { headers: { 'x-admin-token': adminToken } }
-      );
-      alert('Withdrawal approved!');
-      loadAdminData();
-    } catch (error) {
-      alert('Failed to approve withdrawal');
-    }
+      await axios.post(`${API}/deposit/request`, { amount: dAmount, caelusUsername: dUsername }, { headers: headers() });
+      alert('Deposit request submitted! Join Discord for verification.');
+      setDUsername(''); setDAmount(0);
+    } catch { alert('Failed'); }
   };
 
-  const rejectWithdrawal = async (id: string) => {
-    try {
-      await axios.post(
-        `${API_URL}/admin/withdrawal/reject`,
-        { withdrawalId: id },
-        { headers: { 'x-admin-token': adminToken } }
-      );
-      alert('Withdrawal rejected and refunded!');
-      loadAdminData();
-    } catch (error) {
-      alert('Failed to reject withdrawal');
-    }
-  };
-
+  // ===== LOGIN SCREEN =====
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-900 flex items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-8 max-w-md w-full text-center"
-        >
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <Globe className="w-10 h-10 text-indigo-400" />
-            <h1 className="text-4xl font-bold text-white">Caeflip</h1>
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ background: 'rgba(30,41,59,0.8)', backdropFilter: 'blur(20px)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 20, padding: 48, maxWidth: 420, width: '100%', textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 8 }}>🪐</div>
+          <h1 style={{ color: '#fff', fontSize: 36, fontWeight: 800, marginBottom: 4 }}>Caeflip</h1>
+          <p style={{ color: '#94a3b8', marginBottom: 32, fontSize: 14 }}>The #1 Caelus gambling platform</p>
+
+          <div style={{ marginBottom: 24 }}>
+            <input value={refInput} onChange={e => setRefInput(e.target.value.toUpperCase())} placeholder="Referral code (optional)" style={{ width: '100%', padding: '10px 16px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 16, boxSizing: 'border-box' }} />
           </div>
-          
-          <p className="text-slate-300 mb-6">
-            The premier Caelus gambling platform
-          </p>
-          
-          <div className="flex justify-center">
-            <GoogleLogin
-              onSuccess={handleGoogleLogin}
-              onError={() => alert('Login failed')}
-              theme="filled_black"
-              size="large"
-            />
+
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin onSuccess={onGoogleLogin} onError={() => alert('Login failed')} theme="filled_black" size="large" shape="pill" />
           </div>
-          
-          <p className="text-xs text-slate-500 mt-6">
-            Join Discord for support: discord.gg/AHZzD9WJEb
-          </p>
-        </motion.div>
-        
-        {showRoblosecurity && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full"
-            >
-              <h3 className="text-xl font-bold text-white mb-4">Link Your Caelus Account</h3>
-              <p className="text-slate-300 mb-4 text-sm">
-                Enter your .ROBLOSECURITY cookie to link your Caelus account and access your inventory.
-              </p>
-              
-              <input
-                type="password"
-                value={roblosecurityInput}
-                onChange={(e) => setRoblosecurityInput(e.target.value)}
-                placeholder="Paste .ROBLOSECURITY here"
-                className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white focus:border-indigo-500 outline-none mb-4"
-              />
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={handleRoblosecuritySubmit}
-                  className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition"
-                >
-                  Link Account
-                </button>
-                <button
-                  onClick={() => setShowRoblosecurity(false)}
-                  className="px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition"
-                >
-                  Skip
-                </button>
-              </div>
-            </motion.div>
+
+          <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'center' }}>
+            <a href="https://discord.gg/AHZzD9WJEb" target="_blank" rel="noreferrer" style={{ color: '#818cf8', fontSize: 13, textDecoration: 'none' }}>💬 Discord</a>
+            <span style={{ color: '#475569' }}>•</span>
+            <a href="https://caelus.lol" target="_blank" rel="noreferrer" style={{ color: '#818cf8', fontSize: 13, textDecoration: 'none' }}>🪐 Caelus</a>
           </div>
-        )}
+        </div>
       </div>
     );
   }
 
+  // ===== MAIN APP =====
+  const navItems: { id: Tab; label: string; icon: string }[] = [
+    { id: 'crates', label: 'Cases', icon: '📦' },
+    { id: 'mines', label: 'Mines', icon: '💣' },
+    { id: 'towers', label: 'Towers', icon: '🏗️' },
+    { id: 'inventory', label: 'Inventory', icon: '🎒' },
+    { id: 'wallet', label: 'Wallet', icon: '💰' },
+    { id: 'history', label: 'History', icon: '📜' },
+    { id: 'profile', label: 'Profile', icon: '👤' },
+  ];
+  if (isAdmin) navItems.push({ id: 'admin', label: 'Admin', icon: '⚡' });
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-900">
-      {/* Navbar */}
-      <nav className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Globe className="w-8 h-8 text-indigo-400" />
-            <h1 className="text-2xl font-bold text-white">Caeflip</h1>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <div className="px-4 py-2 bg-slate-900/50 rounded-lg">
-              <span className="text-yellow-400 font-bold">R$ {user.balance.toFixed(2)}</span>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%)' }}>
+      {/* ===== NAVBAR ===== */}
+      <nav style={{ background: 'rgba(15,23,42,0.95)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(99,102,241,0.2)', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 16px' }}>
+          {/* Top bar */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 28 }}>🪐</span>
+              <span style={{ color: '#fff', fontSize: 22, fontWeight: 800 }}>Caeflip</span>
             </div>
-            
-            <button
-              onClick={() => setShowRoblosecurity(!showRoblosecurity)}
-              className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm transition"
-              title="Update ROBLOSECURITY"
-            >
-              🔑
-            </button>
-            
-            <img src={user.picture} alt={user.name} className="w-10 h-10 rounded-full border-2 border-indigo-500" />
-            
-            <button
-              onClick={() => setShowAdminLogin(true)}
-              className="p-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition"
-            >
-              <Settings className="w-5 h-5 text-white" />
-            </button>
-            
-            <button
-              onClick={handleLogout}
-              className="p-2 bg-red-600 hover:bg-red-700 rounded-lg transition"
-            >
-              <LogOut className="w-5 h-5 text-white" />
-            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <a href="https://discord.gg/AHZzD9WJEb" target="_blank" rel="noreferrer" style={{ padding: '6px 14px', background: '#5865F2', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>💬 Discord</a>
+              <div style={{ padding: '6px 14px', background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 8 }}>
+                <span style={{ color: '#eab308', fontWeight: 700, fontSize: 14 }}>R$ {Math.floor(user.balance).toLocaleString()}</span>
+              </div>
+              <button onClick={() => setShowSecurity(true)} style={{ padding: '6px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', cursor: 'pointer', fontSize: 16 }} title="ROBLOSECURITY">🔑</button>
+              <button onClick={() => setShowAdminLogin(true)} style={{ padding: '6px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 8, color: '#94a3b8', cursor: 'pointer', fontSize: 16 }} title="Admin">⚙️</button>
+              {user.picture && <img src={user.picture} alt="" style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid #6366f1' }} />}
+              <button onClick={logout} style={{ padding: '6px 10px', background: '#dc2626', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Logout</button>
+            </div>
           </div>
-        </div>
-        
-        {/* Tabs */}
-        <div className="max-w-7xl mx-auto px-4 flex gap-2 overflow-x-auto pb-2">
-          {['crates', 'towers', 'mines', 'inventory', 'withdraw', 'promo', ...(isAdmin ? ['admin'] : [])].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-lg font-semibold transition whitespace-nowrap ${
-                activeTab === tab
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              {tab === 'crates' && <Package className="w-4 h-4 inline mr-2" />}
-              {tab === 'towers' && <Trophy className="w-4 h-4 inline mr-2" />}
-              {tab === 'mines' && <Grid3x3 className="w-4 h-4 inline mr-2" />}
-              {tab === 'inventory' && <Package className="w-4 h-4 inline mr-2" />}
-              {tab === 'withdraw' && <Wallet className="w-4 h-4 inline mr-2" />}
-              {tab === 'promo' && <Gift className="w-4 h-4 inline mr-2" />}
-              {tab === 'admin' && <Users className="w-4 h-4 inline mr-2" />}
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
+
+          {/* Tab bar */}
+          <div style={{ display: 'flex', gap: 4, paddingBottom: 8, overflowX: 'auto' }}>
+            {navItems.map(n => (
+              <button key={n.id} onClick={() => setTab(n.id)} style={{
+                padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                background: tab === n.id ? '#6366f1' : 'transparent',
+                color: tab === n.id ? '#fff' : '#94a3b8',
+                fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', transition: 'all 0.2s'
+              }}>
+                {n.icon} {n.label}
+              </button>
+            ))}
+          </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Crates Tab */}
-        {activeTab === 'crates' && (
+      {/* ===== CONTENT ===== */}
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: 20 }}>
+
+        {/* ===== CASES ===== */}
+        {tab === 'crates' && (
           <div>
-            <h2 className="text-3xl font-bold text-white mb-6">Open Cases</h2>
-            
-            <div className="grid md:grid-cols-4 gap-4 mb-8">
-              {CASES.map((caseData, index) => (
-                <motion.button
-                  key={index}
-                  onClick={() => setSelectedCase(index)}
-                  whileHover={{ scale: 1.05 }}
-                  className={`p-4 rounded-xl border-2 transition ${
-                    selectedCase === index
-                      ? 'border-indigo-500 bg-indigo-900/30'
-                      : 'border-slate-700 bg-slate-800/50'
-                  }`}
-                >
-                  <div className="text-4xl mb-2">{caseData.icon}</div>
-                  <h3 className="text-white font-bold">{caseData.name}</h3>
-                  <p className="text-yellow-400 font-semibold">R$ {caseData.cost}</p>
-                </motion.button>
+            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Open Cases</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, marginBottom: 24 }}>
+              {CASES.map((c, i) => (
+                <button key={i} onClick={() => setSelectedCase(i)} style={{
+                  padding: 16, borderRadius: 12, border: selectedCase === i ? `2px solid ${c.color}` : '2px solid #334155',
+                  background: selectedCase === i ? `${c.color}22` : '#1e293b', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s'
+                }}>
+                  <div style={{ fontSize: 32 }}>{c.emoji}</div>
+                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, marginTop: 4 }}>{c.name}</div>
+                  <div style={{ color: c.color, fontWeight: 700, fontSize: 16, marginTop: 2 }}>R$ {c.cost}</div>
+                </button>
               ))}
             </div>
 
-            <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 mb-6">
-              <div className="relative h-40 overflow-hidden">
-                <div className="absolute top-0 bottom-0 left-1/2 w-1 bg-yellow-400 z-10" />
-                <div
-                  className="flex gap-4 transition-transform duration-[5000ms] ease-out"
-                  style={{ transform: `translateX(${spinOffset}px)` }}
-                >
-                  {spinItems.map((item, index) => (
-                    <div
-                      key={index}
-                      className={`min-w-[140px] h-36 bg-gradient-to-br ${getRarityColor(item.rarity)} rounded-xl p-3 flex flex-col items-center justify-center border-2 border-white/20`}
-                    >
-                      <div className="text-white font-bold text-center text-sm">{item.name}</div>
-                      <div className="text-yellow-300 font-bold mt-2">R$ {item.value}</div>
-                    </div>
-                  ))}
-                </div>
+            {/* Spinner */}
+            <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: '24px 0', marginBottom: 16, overflow: 'hidden', position: 'relative' }}>
+              <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 3, background: '#eab308', zIndex: 10, transform: 'translateX(-50%)' }} />
+              <div style={{ position: 'absolute', left: '50%', top: 0, transform: 'translateX(-50%)', width: 0, height: 0, borderLeft: '10px solid transparent', borderRight: '10px solid transparent', borderTop: '14px solid #eab308', zIndex: 10 }} />
+              <div key={spinKey} style={{
+                display: 'flex', gap: 8, paddingLeft: 20,
+                transform: `translateX(${spinPos}px)`,
+                transition: isSpinning ? 'transform 4.5s cubic-bezier(0.15, 0.8, 0.3, 1)' : 'none'
+              }}>
+                {spinItems.map((item, i) => (
+                  <div key={i} style={{
+                    minWidth: 136, height: 120, borderRadius: 12, padding: 12,
+                    background: rbg(item.rarity), border: '2px solid rgba(255,255,255,0.2)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
+                  }}>
+                    <div style={{ color: '#fff', fontWeight: 700, fontSize: 12, textAlign: 'center', lineHeight: 1.2 }}>{item.name}</div>
+                    <div style={{ color: '#fef08a', fontWeight: 700, fontSize: 14, marginTop: 6 }}>R$ {item.value}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <button
-              onClick={openCrate}
-              disabled={isSpinning}
-              className={`w-full py-4 rounded-xl font-bold text-lg transition ${
-                isSpinning
-                  ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white'
-              }`}
-            >
-              {isSpinning ? 'Opening...' : `Open ${CASES[selectedCase].name} - R$ ${CASES[selectedCase].cost}`}
+            <button onClick={openCrate} disabled={isSpinning} style={{
+              width: '100%', padding: 16, borderRadius: 12, border: 'none', cursor: isSpinning ? 'not-allowed' : 'pointer',
+              background: isSpinning ? '#334155' : `linear-gradient(135deg, ${CASES[selectedCase].color}, #6366f1)`,
+              color: '#fff', fontWeight: 700, fontSize: 16, transition: 'all 0.2s'
+            }}>
+              {isSpinning ? 'Spinning...' : `Open ${CASES[selectedCase].name} — R$ ${CASES[selectedCase].cost}`}
             </button>
-          </div>
-        )}
 
-        {/* Towers Tab */}
-        {activeTab === 'towers' && (
-          <div>
-            <h2 className="text-3xl font-bold text-white mb-6">Towers</h2>
-            
-            {!towersGameActive ? (
-              <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6">
-                <div className="mb-4">
-                  <label className="text-white mb-2 block">Bet Amount</label>
-                  <input
-                    type="number"
-                    value={towersBet}
-                    onChange={(e) => setTowersBet(parseFloat(e.target.value))}
-                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                  />
-                </div>
-                
-                <div className="mb-4">
-                  <label className="text-white mb-2 block">Difficulty</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['easy', 'medium', 'hard'] as const).map((diff) => (
-                      <button
-                        key={diff}
-                        onClick={() => setTowersDifficulty(diff)}
-                        className={`py-2 rounded-lg font-semibold transition ${
-                          towersDifficulty === diff
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-slate-700 text-slate-300'
-                        }`}
-                      >
-                        {diff.charAt(0).toUpperCase() + diff.slice(1)}
-                      </button>
-                    ))}
+            {/* Items preview */}
+            <div style={{ marginTop: 32 }}>
+              <h3 style={{ color: '#94a3b8', fontSize: 14, fontWeight: 600, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>Possible Items</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
+                {ITEMS.map((item, i) => (
+                  <div key={i} style={{ padding: 10, borderRadius: 8, background: '#1e293b', border: `1px solid ${rc(item.rarity)}33`, textAlign: 'center' }}>
+                    <div style={{ color: rc(item.rarity), fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>{item.rarity}</div>
+                    <div style={{ color: '#fff', fontSize: 12, fontWeight: 600, marginTop: 2 }}>{item.name}</div>
+                    <div style={{ color: '#eab308', fontSize: 13, fontWeight: 700, marginTop: 2 }}>R$ {item.value}</div>
                   </div>
-                </div>
-                
-                <button
-                  onClick={startTowersGame}
-                  className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-bold transition"
-                >
-                  Start Game
-                </button>
+                ))}
               </div>
-            ) : (
-              <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6">
-                <div className="text-white mb-4">Level: {towersLevel + 1}/10</div>
-                <div className="space-y-2">
-                  {[...Array(10)].map((_, row) => (
-                    <div key={row} className="flex gap-2 justify-center">
-                      {[...Array(towersDifficulty === 'easy' ? 3 : towersDifficulty === 'medium' ? 4 : 5)].map((_, col) => (
-                        <button
-                          key={col}
-                          onClick={() => clickTowerTile(9 - row, col)}
-                          disabled={9 - row !== towersLevel}
-                          className={`w-16 h-16 rounded-lg font-bold transition ${
-                            towersPath[9 - row] === col
-                              ? 'bg-green-600'
-                              : 9 - row === towersLevel
-                              ? 'bg-indigo-600 hover:bg-indigo-700'
-                              : 'bg-slate-700'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* Mines Tab */}
-        {activeTab === 'mines' && (
+        {/* ===== MINES ===== */}
+        {tab === 'mines' && (
           <div>
-            <h2 className="text-3xl font-bold text-white mb-6">Mines</h2>
-            
-            {!minesGameActive ? (
-              <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6">
-                <div className="mb-4">
-                  <label className="text-white mb-2 block">Bet Amount</label>
-                  <input
-                    type="number"
-                    value={minesBet}
-                    onChange={(e) => setMinesBet(parseFloat(e.target.value))}
-                    className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                  />
-                </div>
-                
-                <div className="mb-4">
-                  <label className="text-white mb-2 block">Number of Mines: {minesCount}</label>
-                  <input
-                    type="range"
-                    min="1"
-                    max="10"
-                    value={minesCount}
-                    onChange={(e) => setMinesCount(parseInt(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-                
-                <button
-                  onClick={startMinesGame}
-                  className="w-full py-4 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-700 hover:to-orange-700 text-white rounded-xl font-bold transition"
-                >
-                  Start Game
-                </button>
+            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Mines</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 20 }}>
+              {/* Controls */}
+              <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 20 }}>
+                <label style={{ color: '#94a3b8', fontSize: 13, display: 'block', marginBottom: 6 }}>Bet Amount (R$)</label>
+                <input type="number" value={mBet} onChange={e => setMBet(Number(e.target.value))} disabled={mActive} style={{ width: '100%', padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 16, boxSizing: 'border-box' }} />
+
+                <label style={{ color: '#94a3b8', fontSize: 13, display: 'block', marginBottom: 6 }}>Mines: {mCount}</label>
+                <input type="range" min={1} max={15} value={mCount} onChange={e => setMCount(Number(e.target.value))} disabled={mActive} style={{ width: '100%', marginBottom: 16 }} />
+
+                {!mActive && !mGameOver && (
+                  <button onClick={startMines} style={{ width: '100%', padding: 14, borderRadius: 10, border: 'none', background: 'linear-gradient(135deg, #22c55e, #16a34a)', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Start Game</button>
+                )}
+                {mActive && (
+                  <>
+                    <div style={{ color: '#fff', fontSize: 20, fontWeight: 700, textAlign: 'center', marginBottom: 8 }}>{mMulti.toFixed(2)}x</div>
+                    <div style={{ color: '#eab308', fontSize: 16, fontWeight: 700, textAlign: 'center', marginBottom: 16 }}>R$ {Math.floor(mBet * mMulti)}</div>
+                    <button onClick={cashoutMines} style={{ width: '100%', padding: 14, borderRadius: 10, border: 'none', background: 'linear-gradient(135deg, #eab308, #ca8a04)', color: '#000', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Cashout</button>
+                  </>
+                )}
+                {mGameOver && !mActive && (
+                  <div>
+                    <div style={{ color: '#ef4444', fontSize: 18, fontWeight: 700, textAlign: 'center', marginBottom: 12 }}>💥 BOOM! You lost R$ {mBet}</div>
+                    <button onClick={() => setMGameOver(false)} style={{ width: '100%', padding: 14, borderRadius: 10, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Play Again</button>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6">
-                <div className="text-white mb-4 flex justify-between">
-                  <span>Multiplier: {minesMultiplier.toFixed(2)}x</span>
-                  <span>Potential Win: R$ {(minesBet * minesMultiplier).toFixed(2)}</span>
-                </div>
-                
-                <div className="grid grid-cols-5 gap-2 mb-4">
-                  {[...Array(25)].map((_, index) => (
-                    <button
-                      key={index}
-                      onClick={() => clickMineTile(index)}
-                      disabled={minesRevealed.includes(index)}
-                      className={`aspect-square rounded-lg font-bold text-2xl transition ${
-                        minesRevealed.includes(index)
-                          ? minePositions.includes(index)
-                            ? 'bg-red-600'
-                            : 'bg-green-600'
-                          : 'bg-slate-700 hover:bg-slate-600'
-                      }`}
-                    >
-                      {minesRevealed.includes(index) && (minePositions.includes(index) ? '💣' : '💎')}
+
+              {/* Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, alignContent: 'start' }}>
+                {Array.from({ length: 25 }, (_, i) => {
+                  const revealed = mRevealed.includes(i);
+                  const isMine = mMines.includes(i);
+                  const showMine = revealed && isMine && !mActive;
+                  return (
+                    <button key={i} onClick={() => clickMine(i)} disabled={!mActive || revealed} style={{
+                      aspectRatio: '1', borderRadius: 10, border: 'none', cursor: mActive && !revealed ? 'pointer' : 'default',
+                      background: revealed ? (showMine || (!mActive && isMine) ? '#dc2626' : '#22c55e') : '#1e293b',
+                      fontSize: 24, transition: 'all 0.15s',
+                      transform: revealed ? 'scale(0.95)' : 'scale(1)',
+                      boxShadow: mActive && !revealed ? '0 0 0 1px #334155' : 'none'
+                    }}>
+                      {revealed ? (showMine || (!mActive && isMine) ? '💣' : '💎') : (mActive ? '❔' : '')}
                     </button>
-                  ))}
-                </div>
-                
-                <button
-                  onClick={cashoutMines}
-                  className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-bold transition"
-                >
-                  Cashout R$ {(minesBet * minesMultiplier).toFixed(2)}
-                </button>
+                  );
+                })}
               </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* Inventory Tab */}
-        {activeTab === 'inventory' && (
+        {/* ===== TOWERS ===== */}
+        {tab === 'towers' && (
           <div>
-            <h2 className="text-3xl font-bold text-white mb-6">Your Inventory</h2>
-            
-            {user.inventory.length === 0 ? (
-              <div className="text-center py-12 text-slate-400">
-                No items yet. Open some cases!
+            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Towers</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 20 }}>
+              <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 20 }}>
+                <label style={{ color: '#94a3b8', fontSize: 13, display: 'block', marginBottom: 6 }}>Bet Amount (R$)</label>
+                <input type="number" value={tBet} onChange={e => setTBet(Number(e.target.value))} disabled={tActive} style={{ width: '100%', padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 16, boxSizing: 'border-box' }} />
+
+                <label style={{ color: '#94a3b8', fontSize: 13, display: 'block', marginBottom: 6 }}>Difficulty</label>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+                  {(['easy', 'medium', 'hard'] as const).map(d => (
+                    <button key={d} onClick={() => setTDiff(d)} disabled={tActive} style={{
+                      flex: 1, padding: 8, borderRadius: 8, border: 'none', cursor: 'pointer',
+                      background: tDiff === d ? '#6366f1' : '#0f172a', color: tDiff === d ? '#fff' : '#94a3b8',
+                      fontWeight: 600, fontSize: 12, textTransform: 'capitalize'
+                    }}>{d}</button>
+                  ))}
+                </div>
+
+                {!tActive && !tGameOver && (
+                  <button onClick={startTowers} style={{ width: '100%', padding: 14, borderRadius: 10, border: 'none', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Start Climbing</button>
+                )}
+                {tActive && (
+                  <>
+                    <div style={{ color: '#fff', fontSize: 16, fontWeight: 700, textAlign: 'center', marginBottom: 4 }}>Level {tLevel}/8</div>
+                    <div style={{ color: '#eab308', fontSize: 14, fontWeight: 700, textAlign: 'center', marginBottom: 12 }}>
+                      {(1 + tLevel * (tDiff === 'easy' ? 0.3 : tDiff === 'medium' ? 0.8 : 1.5)).toFixed(2)}x — R$ {Math.floor(tBet * (1 + tLevel * (tDiff === 'easy' ? 0.3 : tDiff === 'medium' ? 0.8 : 1.5)))}
+                    </div>
+                    {tLevel > 0 && <button onClick={cashoutTowers} style={{ width: '100%', padding: 14, borderRadius: 10, border: 'none', background: 'linear-gradient(135deg, #eab308, #ca8a04)', color: '#000', fontWeight: 700, fontSize: 15, cursor: 'pointer', marginBottom: 8 }}>Cashout</button>}
+                  </>
+                )}
+                {tGameOver && !tActive && (
+                  <div>
+                    <div style={{ color: '#ef4444', fontSize: 18, fontWeight: 700, textAlign: 'center', marginBottom: 12 }}>💥 Hit a bomb! Lost R$ {tBet}</div>
+                    <button onClick={() => setTGameOver(false)} style={{ width: '100%', padding: 14, borderRadius: 10, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Try Again</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Tower grid */}
+              <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: 6 }}>
+                {Array.from({ length: 8 }, (_, row) => {
+                  const cols = tDiff === 'easy' ? 3 : tDiff === 'medium' ? 3 : 4;
+                  const isCurrentRow = row === tLevel;
+                  const isPassed = row < tLevel;
+                  return (
+                    <div key={row} style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                      {Array.from({ length: cols }, (_, col) => {
+                        const wasChosen = tPath[row] === col;
+                        const isBomb = tBombs[row]?.includes(col);
+                        return (
+                          <button key={col} onClick={() => clickTower(row, col)} disabled={!tActive || !isCurrentRow} style={{
+                            width: 80, height: 48, borderRadius: 8, border: 'none', cursor: tActive && isCurrentRow ? 'pointer' : 'default',
+                            background: isPassed ? (wasChosen ? '#22c55e' : '#1e293b') : (isCurrentRow && tActive ? '#6366f1' : '#1e293b'),
+                            color: '#fff', fontWeight: 700, fontSize: 14, transition: 'all 0.15s',
+                            opacity: (!tActive && !isPassed && !tGameOver) ? 0.4 : 1,
+                            boxShadow: isCurrentRow && tActive ? '0 0 12px rgba(99,102,241,0.4)' : 'none'
+                          }}>
+                            {isPassed && wasChosen ? '✅' : (tGameOver && isBomb ? '💣' : (isCurrentRow && tActive ? '❔' : ''))}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===== INVENTORY ===== */}
+        {tab === 'inventory' && (
+          <div>
+            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Inventory ({user.inventory.filter(i => !i.sold).length} items)</h2>
+            {user.inventory.filter(i => !i.sold).length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🎒</div>
+                <p>Your inventory is empty. Open some cases!</p>
               </div>
             ) : (
-              <div className="grid md:grid-cols-4 gap-4">
-                {user.inventory.map((item, index) => (
-                  <div
-                    key={index}
-                    className={`bg-gradient-to-br ${getRarityColor(item.rarity)} rounded-xl p-4 border-2 border-white/20`}
-                  >
-                    <h3 className="text-white font-bold text-center mb-2">{item.name}</h3>
-                    <p className="text-yellow-300 font-bold text-center">R$ {item.value}</p>
-                    <p className="text-white/70 text-sm text-center mt-2">{item.demand} Demand</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+                {user.inventory.map((item, idx) => !item.sold && (
+                  <div key={idx} style={{ background: rbg(item.rarity), borderRadius: 12, padding: 16, border: '2px solid rgba(255,255,255,0.15)' }}>
+                    <div style={{ color: '#fff', fontWeight: 700, fontSize: 13, textAlign: 'center', marginBottom: 4 }}>{item.name}</div>
+                    <div style={{ color: '#fef08a', fontWeight: 700, fontSize: 16, textAlign: 'center' }}>R$ {item.value}</div>
+                    <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, textAlign: 'center', marginTop: 2 }}>{item.rarity.toUpperCase()}</div>
+                    <button onClick={() => sellItem(idx)} style={{
+                      width: '100%', marginTop: 10, padding: 8, borderRadius: 8, border: 'none',
+                      background: 'rgba(0,0,0,0.3)', color: '#fbbf24', fontWeight: 700, fontSize: 13, cursor: 'pointer'
+                    }}>
+                      Sell for R$ {Math.floor(item.value * 0.7)}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -880,293 +715,363 @@ function App() {
           </div>
         )}
 
-        {/* Withdraw Tab */}
-        {activeTab === 'withdraw' && (
+        {/* ===== WALLET ===== */}
+        {tab === 'wallet' && (
           <div>
-            <h2 className="text-3xl font-bold text-white mb-6">Withdraw Robux</h2>
-            
-            <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 max-w-md mx-auto">
-              <div className="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-4 mb-6">
-                <p className="text-yellow-200 text-sm text-center">
-                  ⚠️ ONLY ROBUX WITHDRAWING FOR NOW<br />
-                  WITHDRAWS AND DEPOSITS ARE DONE MANUALLY AND MAY TAKE A LOT OF TIME<br />
-                  Join Discord for faster processing: discord.gg/AHZzD9WJEb
-                </p>
+            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Wallet</h2>
+
+            {/* Promo code */}
+            <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 20, marginBottom: 20 }}>
+              <h3 style={{ color: '#fff', fontSize: 16, fontWeight: 700, marginBottom: 12 }}>🎁 Redeem Promo Code</h3>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input value={promoInput} onChange={e => setPromoInput(e.target.value.toUpperCase())} placeholder="ENTER CODE" style={{ flex: 1, padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none' }} />
+                <button onClick={redeemPromo} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Redeem</button>
               </div>
-              
-              <div className="mb-4">
-                <label className="text-white mb-2 block">Robux Amount</label>
-                <input
-                  type="number"
-                  value={withdrawRobux}
-                  onChange={(e) => setWithdrawRobux(e.target.value)}
-                  placeholder="Amount in Robux"
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              {/* DEPOSIT */}
+              <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 20 }}>
+                <h3 style={{ color: '#fff', fontSize: 16, fontWeight: 700, marginBottom: 4 }}>💳 Deposit</h3>
+                <p style={{ color: '#64748b', fontSize: 12, marginBottom: 16 }}>Buy a gamepass on Caelus, then submit your username below</p>
+
+                <div style={{ display: 'grid', gap: 6, marginBottom: 16 }}>
+                  {Object.entries(DEPOSIT_LINKS).map(([amount, url]) => (
+                    <a key={amount} href={url} target="_blank" rel="noreferrer" style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8,
+                      color: '#fff', textDecoration: 'none', fontWeight: 600, fontSize: 14, transition: 'all 0.15s'
+                    }}>
+                      <span>R$ {Number(amount).toLocaleString()}</span>
+                      <span style={{ color: '#6366f1', fontSize: 12 }}>Buy →</span>
+                    </a>
+                  ))}
+                </div>
+
+                <input value={dUsername} onChange={e => setDUsername(e.target.value)} placeholder="Your Caelus username" style={{ width: '100%', padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+                <select value={dAmount} onChange={e => setDAmount(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 12 }}>
+                  <option value={0}>Select amount purchased</option>
+                  {[100, 300, 500, 1000, 5000].map(a => <option key={a} value={a}>R$ {a}</option>)}
+                </select>
+                <button onClick={submitDeposit} disabled={!dUsername || !dAmount} style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: '#22c55e', color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: !dUsername || !dAmount ? 0.5 : 1 }}>Submit Deposit Request</button>
+
+                <div style={{ background: '#422006', border: '1px solid #92400e', borderRadius: 8, padding: 10, marginTop: 12 }}>
+                  <p style={{ color: '#fbbf24', fontSize: 11, textAlign: 'center', lineHeight: 1.5 }}>
+                    ⚠️ DEPOSITS ARE DONE MANUALLY AND MAY TAKE TIME<br />
+                    <a href="https://discord.gg/AHZzD9WJEb" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', fontWeight: 700 }}>JOIN DISCORD FOR FASTER DEPOSITS</a>
+                  </p>
+                </div>
               </div>
-              
-              <div className="mb-4">
-                <label className="text-white mb-2 block">Caelus Username</label>
-                <input
-                  type="text"
-                  value={withdrawUsername}
-                  onChange={(e) => setWithdrawUsername(e.target.value)}
-                  placeholder="Your Caelus username"
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                />
+
+              {/* WITHDRAW */}
+              <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 20 }}>
+                <h3 style={{ color: '#fff', fontSize: 16, fontWeight: 700, marginBottom: 4 }}>💸 Withdraw</h3>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  <div style={{ flex: 1, padding: 10, background: '#0f172a', borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>Your Balance</div>
+                    <div style={{ color: '#eab308', fontWeight: 700, fontSize: 18 }}>R$ {Math.floor(user.balance).toLocaleString()}</div>
+                  </div>
+                  <div style={{ flex: 1, padding: 10, background: '#0f172a', borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>Robux Stock</div>
+                    <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 18 }}>R$ {robuxStock.toLocaleString()}</div>
+                  </div>
+                </div>
+
+                <input type="number" value={wAmount} onChange={e => setWAmount(e.target.value)} placeholder="Amount to withdraw" style={{ width: '100%', padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
+                <input value={wUsername} onChange={e => setWUsername(e.target.value)} placeholder="Your Caelus username" style={{ width: '100%', padding: '10px 14px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }} />
+                <button onClick={submitWithdraw} disabled={!wAmount || !wUsername} style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: !wAmount || !wUsername ? 0.5 : 1 }}>Request Withdrawal</button>
+
+                <div style={{ background: '#1e1b4b', border: '1px solid #4338ca', borderRadius: 8, padding: 10, marginTop: 12 }}>
+                  <p style={{ color: '#a5b4fc', fontSize: 11, textAlign: 'center', lineHeight: 1.5 }}>
+                    ⚠️ ONLY ROBUX WITHDRAWING FOR NOW<br />
+                    WITHDRAWS ARE DONE MANUALLY<br />
+                    <a href="https://discord.gg/AHZzD9WJEb" target="_blank" rel="noreferrer" style={{ color: '#60a5fa', fontWeight: 700 }}>JOIN DISCORD FOR FASTER WITHDRAWALS</a>
+                  </p>
+                </div>
               </div>
-              
-              <button
-                onClick={submitWithdrawal}
-                className="w-full py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-bold transition"
-              >
-                Submit Withdrawal Request
-              </button>
             </div>
           </div>
         )}
 
-        {/* Promo Tab */}
-        {activeTab === 'promo' && (
+        {/* ===== HISTORY ===== */}
+        {tab === 'history' && (
           <div>
-            <h2 className="text-3xl font-bold text-white mb-6">Promo Codes</h2>
-            
-            <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 max-w-md mx-auto">
-              <div className="mb-4">
-                <label className="text-white mb-2 block">Enter Promo Code</label>
-                <input
-                  type="text"
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-                  placeholder="PROMO CODE"
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white uppercase"
-                />
+            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 20 }}>History</h2>
+            {(!user.history || user.history.length === 0) ? (
+              <div style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📜</div>
+                <p>No history yet. Start playing!</p>
               </div>
-              
-              <button
-                onClick={redeemPromo}
-                className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-bold transition"
-              >
-                Redeem Code
-              </button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[...user.history].reverse().map((h, i) => (
+                  <div key={i} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>
+                        {h.type === 'crate' && `📦 Opened crate — won ${h.item}`}
+                        {h.type === 'mines' && (h.won ? `💎 Mines win (${h.multiplier?.toFixed(2)}x)` : '💣 Mines loss')}
+                        {h.type === 'towers' && (h.won ? `🏗️ Towers win (${h.multiplier?.toFixed(2)}x)` : '🏗️ Towers loss')}
+                        {h.type === 'sell' && `💰 Sold ${h.item}`}
+                        {h.type === 'promo' && `🎁 Redeemed ${h.code}`}
+                        {h.type === 'withdraw' && `💸 Withdrawal requested`}
+                        {h.type === 'deposit_request' && `💳 Deposit requested`}
+                        {h.type === 'deposit_approved' && `✅ Deposit approved`}
+                        {h.type === 'referral' && `👥 Referral from ${h.from}`}
+                        {h.type === 'referral_bonus' && `🎁 Referral bonus`}
+                        {h.type === 'admin_credit' && `⚡ Admin credit`}
+                      </span>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ color: (h.won === false || h.type === 'withdraw') ? '#ef4444' : '#22c55e', fontWeight: 700, fontSize: 14 }}>
+                        {h.amount ? `${h.type === 'withdraw' ? '-' : '+'}R$ ${h.amount}` : (h.value ? `R$ ${h.value}` : (h.bet ? `R$ ${h.bet}` : ''))}
+                      </div>
+                      <div style={{ color: '#64748b', fontSize: 11 }}>{new Date(h.time).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===== PROFILE ===== */}
+        {tab === 'profile' && (
+          <div>
+            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Profile</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              {/* Info card */}
+              <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 24 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+                  {user.picture ? <img src={user.picture} alt="" style={{ width: 64, height: 64, borderRadius: '50%', border: '3px solid #6366f1' }} /> : <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>👤</div>}
+                  <div>
+                    <div style={{ color: '#fff', fontSize: 20, fontWeight: 700 }}>{user.name}</div>
+                    <div style={{ color: '#64748b', fontSize: 13 }}>{user.email}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ background: '#0f172a', borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>User ID</div>
+                    <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, fontFamily: 'monospace' }}>{user.userId}</div>
+                  </div>
+                  <div style={{ background: '#0f172a', borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>Balance</div>
+                    <div style={{ color: '#eab308', fontWeight: 700, fontSize: 14 }}>R$ {Math.floor(user.balance).toLocaleString()}</div>
+                  </div>
+                  <div style={{ background: '#0f172a', borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>Total Wagered</div>
+                    <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>R$ {(user.totalWagered || 0).toLocaleString()}</div>
+                  </div>
+                  <div style={{ background: '#0f172a', borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>Items Won</div>
+                    <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{user.inventory?.length || 0}</div>
+                  </div>
+                  <div style={{ background: '#0f172a', borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>Joined</div>
+                    <div style={{ color: '#fff', fontWeight: 700, fontSize: 12 }}>{user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</div>
+                  </div>
+                  <div style={{ background: '#0f172a', borderRadius: 10, padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>.ROBLOSECURITY</div>
+                    <div style={{ color: user.roblosecurity ? '#22c55e' : '#ef4444', fontWeight: 700, fontSize: 12 }}>{user.roblosecurity ? '✅ Linked' : '❌ Not linked'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Referral card */}
+              <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 24 }}>
+                <h3 style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 4 }}>🎁 Referral Program</h3>
+                <p style={{ color: '#64748b', fontSize: 12, marginBottom: 16 }}>Earn R$ 50 for every friend who signs up. They get R$ 25 too!</p>
+
+                <div style={{ background: '#0f172a', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+                  <div style={{ color: '#64748b', fontSize: 11, marginBottom: 4 }}>Your Referral Code</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ color: '#eab308', fontWeight: 700, fontSize: 20, fontFamily: 'monospace', flex: 1 }}>{user.referralCode || `CAE-${user.userId?.slice(3) || '???'}`}</div>
+                    <button onClick={() => { navigator.clipboard.writeText(user.referralCode || `CAE-${user.userId?.slice(3)}`); alert('Copied!'); }} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Copy</button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div style={{ background: '#0f172a', borderRadius: 10, padding: 14 }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>Total Referrals</div>
+                    <div style={{ color: '#fff', fontWeight: 700, fontSize: 24 }}>{user.referrals || 0}</div>
+                  </div>
+                  <div style={{ background: '#0f172a', borderRadius: 10, padding: 14 }}>
+                    <div style={{ color: '#64748b', fontSize: 11 }}>Referral Earnings</div>
+                    <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 24 }}>R$ {user.referralEarnings || 0}</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Admin Tab */}
-        {activeTab === 'admin' && isAdmin && (
+        {/* ===== ADMIN ===== */}
+        {tab === 'admin' && isAdmin && (
           <div>
-            <h2 className="text-3xl font-bold text-white mb-6">Admin Panel</h2>
-            
-            <div className="grid gap-6">
-              {/* Users */}
-              <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6">
-                <h3 className="text-xl font-bold text-white mb-4">All Users ({allUsers.length})</h3>
-                <div className="space-y-2">
-                  {allUsers.map((u) => (
-                    <div key={u.googleId} className="bg-slate-900/50 p-4 rounded-lg flex justify-between items-center">
+            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, marginBottom: 4 }}>⚡ Admin Panel</h2>
+            <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>Manage users, promo codes, deposits, and withdrawals</p>
+
+            {/* Admin tabs */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+              {(['users', 'promos', 'withdrawals', 'deposits'] as const).map(t => (
+                <button key={t} onClick={() => { setATab(t); loadAdminData(); }} style={{
+                  padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                  background: aTab === t ? '#6366f1' : '#1e293b', color: aTab === t ? '#fff' : '#94a3b8',
+                  fontWeight: 600, fontSize: 13, textTransform: 'capitalize'
+                }}>{t} {t === 'withdrawals' ? `(${aWithdrawals.length})` : t === 'deposits' ? `(${aDeposits.length})` : t === 'users' ? `(${aUsers.length})` : `(${aPromos.length})`}</button>
+              ))}
+            </div>
+
+            {/* USERS */}
+            {aTab === 'users' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {aUsers.map(u => (
+                  <div key={u.googleId} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      {u.picture ? <img src={u.picture} alt="" style={{ width: 40, height: 40, borderRadius: '50%' }} /> : <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>👤</div>}
                       <div>
-                        <div className="text-white font-semibold">{u.name}</div>
-                        <div className="text-slate-400 text-sm">{u.email}</div>
-                        <div className="text-yellow-400 font-bold">R$ {u.balance}</div>
-                      </div>
-                      <button
-                        onClick={() => addBalanceToUser(u.googleId, 1000)}
-                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
-                      >
-                        +R$ 1000
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Promo Codes */}
-              <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6">
-                <h3 className="text-xl font-bold text-white mb-4">Promo Codes</h3>
-                
-                <div className="grid md:grid-cols-3 gap-4 mb-4">
-                  <input
-                    type="text"
-                    placeholder="Code"
-                    value={newPromo.code}
-                    onChange={(e) => setNewPromo({ ...newPromo, code: e.target.value.toUpperCase() })}
-                    className="px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Amount"
-                    value={newPromo.amount}
-                    onChange={(e) => setNewPromo({ ...newPromo, amount: e.target.value })}
-                    className="px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Max Uses"
-                    value={newPromo.maxUses}
-                    onChange={(e) => setNewPromo({ ...newPromo, maxUses: e.target.value })}
-                    className="px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white"
-                  />
-                </div>
-                
-                <button
-                  onClick={createPromoCode}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition mb-4"
-                >
-                  Create Promo Code
-                </button>
-                
-                <div className="space-y-2">
-                  {promos.map((promo) => (
-                    <div key={promo.code} className="bg-slate-900/50 p-4 rounded-lg">
-                      <div className="text-white font-bold">{promo.code}</div>
-                      <div className="text-slate-400">R$ {promo.amount} • {promo.uses}/{promo.maxUses} uses</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              
-              {/* Withdrawals */}
-              <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6">
-                <h3 className="text-xl font-bold text-white mb-4">Pending Withdrawals ({withdrawals.length})</h3>
-                <div className="space-y-2">
-                  {withdrawals.map((w) => (
-                    <div key={w.id} className="bg-slate-900/50 p-4 rounded-lg">
-                      <div className="text-white font-semibold">{w.name}</div>
-                      <div className="text-slate-400 text-sm">@{w.robloxUsername}</div>
-                      <div className="text-yellow-400 font-bold">R$ {w.amount}</div>
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={() => approveWithdrawal(w.id)}
-                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => rejectWithdrawal(w.id)}
-                          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition"
-                        >
-                          Reject
-                        </button>
+                        <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{u.name}</div>
+                        <div style={{ color: '#64748b', fontSize: 12 }}>{u.email} • {u.userId}</div>
+                        <div style={{ color: '#64748b', fontSize: 11 }}>🔑 {u.roblosecurity ? u.roblosecurity.substring(0, 20) + '...' : 'No ROBLOX cookie'}</div>
                       </div>
                     </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ color: '#eab308', fontWeight: 700, fontSize: 16 }}>R$ {Math.floor(u.balance).toLocaleString()}</div>
+                      <input type="number" value={aBalanceAdd[u.googleId] || ''} onChange={e => setABalanceAdd({ ...aBalanceAdd, [u.googleId]: e.target.value })} placeholder="Amount" style={{ width: 80, padding: '6px 10px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none' }} />
+                      <button onClick={async () => {
+                        const amt = parseFloat(aBalanceAdd[u.googleId] || '0');
+                        if (!amt) return;
+                        try {
+                          await axios.post(`${API}/admin/add-balance`, { googleId: u.googleId, amount: amt }, { headers: adminHeaders() });
+                          setABalanceAdd({ ...aBalanceAdd, [u.googleId]: '' });
+                          loadAdminData();
+                        } catch { alert('Failed'); }
+                      }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#22c55e', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Add R$</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* PROMOS */}
+            {aTab === 'promos' && (
+              <div>
+                <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                  <h3 style={{ color: '#fff', fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Create Promo Code</h3>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input value={aNewPromo.code} onChange={e => setANewPromo({ ...aNewPromo, code: e.target.value.toUpperCase() })} placeholder="CODE" style={{ flex: 1, padding: '8px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none' }} />
+                    <input type="number" value={aNewPromo.amount} onChange={e => setANewPromo({ ...aNewPromo, amount: e.target.value })} placeholder="R$ Amount" style={{ width: 100, padding: '8px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none' }} />
+                    <input type="number" value={aNewPromo.maxUses} onChange={e => setANewPromo({ ...aNewPromo, maxUses: e.target.value })} placeholder="Max uses" style={{ width: 90, padding: '8px 12px', background: '#0f172a', border: '1px solid #334155', borderRadius: 6, color: '#fff', fontSize: 13, outline: 'none' }} />
+                    <button onClick={async () => {
+                      if (!aNewPromo.code || !aNewPromo.amount || !aNewPromo.maxUses) return;
+                      try {
+                        await axios.post(`${API}/admin/promo/create`, aNewPromo, { headers: adminHeaders() });
+                        setANewPromo({ code: '', amount: '', maxUses: '' });
+                        loadAdminData();
+                      } catch { alert('Failed'); }
+                    }} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Create</button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {aPromos.map(p => (
+                    <div key={p.code} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 10, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ color: '#eab308', fontWeight: 700, fontFamily: 'monospace', fontSize: 16 }}>{p.code}</span>
+                        <span style={{ color: '#64748b', fontSize: 13, marginLeft: 12 }}>R$ {p.amount} • {p.uses}/{p.maxUses} uses</span>
+                      </div>
+                      <button onClick={async () => {
+                        try { await axios.post(`${API}/admin/promo/delete`, { code: p.code }, { headers: adminHeaders() }); loadAdminData(); } catch {}
+                      }} style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: '#dc2626', color: '#fff', fontSize: 12, cursor: 'pointer' }}>Delete</button>
+                    </div>
                   ))}
                 </div>
               </div>
-            </div>
+            )}
+
+            {/* WITHDRAWALS */}
+            {aTab === 'withdrawals' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {aWithdrawals.length === 0 && <p style={{ color: '#64748b', textAlign: 'center', padding: 40 }}>No pending withdrawals</p>}
+                {aWithdrawals.map(w => (
+                  <div key={w.id} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{w.name}</div>
+                      <div style={{ color: '#64748b', fontSize: 12 }}>Caelus: @{w.robloxUsername} • {new Date(w.timestamp).toLocaleDateString()}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ color: '#eab308', fontWeight: 700, fontSize: 16 }}>R$ {w.amount}</div>
+                      <button onClick={async () => { try { await axios.post(`${API}/admin/withdrawal/approve`, { withdrawalId: w.id }, { headers: adminHeaders() }); loadAdminData(); } catch {} }} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: '#22c55e', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✓</button>
+                      <button onClick={async () => { try { await axios.post(`${API}/admin/withdrawal/reject`, { withdrawalId: w.id }, { headers: adminHeaders() }); loadAdminData(); } catch {} }} style={{ padding: '6px 12px', borderRadius: 6, border: 'none', background: '#dc2626', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>✗</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* DEPOSITS */}
+            {aTab === 'deposits' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {aDeposits.length === 0 && <p style={{ color: '#64748b', textAlign: 'center', padding: 40 }}>No pending deposits</p>}
+                {aDeposits.map(d => (
+                  <div key={d.id} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ color: '#fff', fontWeight: 700, fontSize: 14 }}>{d.name}</div>
+                      <div style={{ color: '#64748b', fontSize: 12 }}>Caelus: @{d.caelusUsername} • R$ {d.amount} • {new Date(d.timestamp).toLocaleDateString()}</div>
+                    </div>
+                    <button onClick={async () => {
+                      try { await axios.post(`${API}/deposit/approve`, { depositId: d.id }, { headers: adminHeaders() }); loadAdminData(); } catch {}
+                    }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#22c55e', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>Approve</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Win Modal */}
+      {/* ===== WIN MODAL ===== */}
       <AnimatePresence>
         {wonItem && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50"
-            onClick={() => setWonItem(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.5, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.5, opacity: 0 }}
-              className={`bg-gradient-to-br ${getRarityColor(wonItem.rarity)} rounded-2xl p-8 max-w-md w-full border-4 border-white/30`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-3xl font-bold text-white text-center mb-4">🎉 YOU WON! 🎉</h3>
-              <div className="text-white font-bold text-2xl text-center mb-2">{wonItem.name}</div>
-              <div className="text-yellow-300 font-bold text-3xl text-center mb-4">R$ {wonItem.value}</div>
-              <div className="text-white/80 text-center mb-6">{wonItem.rarity} • {wonItem.demand} Demand</div>
-              <button
-                onClick={() => setWonItem(null)}
-                className="w-full py-3 bg-white/20 hover:bg-white/30 text-white rounded-xl font-bold transition"
-              >
-                Awesome!
-              </button>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setWonItem(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }}>
+            <motion.div initial={{ scale: 0.5 }} animate={{ scale: 1 }} exit={{ scale: 0.5 }} onClick={e => e.stopPropagation()} style={{ background: rbg(wonItem.rarity), borderRadius: 20, padding: 32, maxWidth: 380, width: '100%', border: '3px solid rgba(255,255,255,0.3)', textAlign: 'center' }}>
+              <div style={{ fontSize: 48, marginBottom: 8 }}>🎉</div>
+              <div style={{ color: '#fff', fontSize: 24, fontWeight: 800 }}>{wonItem.name}</div>
+              <div style={{ color: '#fef08a', fontSize: 32, fontWeight: 800, margin: '8px 0' }}>R$ {wonItem.value}</div>
+              <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, marginBottom: 16 }}>{wonItem.rarity.toUpperCase()} • {wonItem.demand} Demand</div>
+              <button onClick={() => setWonItem(null)} style={{ padding: '10px 32px', borderRadius: 10, border: 'none', background: 'rgba(255,255,255,0.2)', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>Nice!</button>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ROBLOSECURITY Modal */}
-      {showRoblosecurity && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full"
-          >
-            <h3 className="text-xl font-bold text-white mb-4">Update .ROBLOSECURITY</h3>
-            <p className="text-slate-300 mb-4 text-sm">
-              Your .ROBLOSECURITY token is stored securely and used to verify your Caelus account.
-            </p>
-            
-            <input
-              type="password"
-              value={roblosecurityInput}
-              onChange={(e) => setRoblosecurityInput(e.target.value)}
-              placeholder="Paste .ROBLOSECURITY here"
-              className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white focus:border-indigo-500 outline-none mb-4"
-            />
-            
-            <div className="flex gap-3">
-              <button
-                onClick={handleRoblosecuritySubmit}
-                className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition"
-              >
-                Save
-              </button>
-              <button
-                onClick={() => setShowRoblosecurity(false)}
-                className="px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition"
-              >
-                Cancel
-              </button>
+      {/* ===== ROBLOSECURITY MODAL ===== */}
+      {showSecurity && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }}>
+          <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 24, maxWidth: 420, width: '100%' }}>
+            <h3 style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 4 }}>🔑 .ROBLOSECURITY</h3>
+            <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16 }}>Link your Caelus account for inventory access. This is stored securely and persists forever. You can change it anytime.</p>
+            <input type="password" value={securityInput} onChange={e => setSecurityInput(e.target.value)} placeholder="Paste your .ROBLOSECURITY token" style={{ width: '100%', padding: '12px 16px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={saveSecurity} style={{ flex: 1, padding: 12, borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Save</button>
+              <button onClick={() => setShowSecurity(false)} style={{ padding: '12px 20px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
             </div>
-          </motion.div>
+          </div>
         </div>
       )}
 
-      {/* Admin Login Modal */}
+      {/* ===== ADMIN LOGIN MODAL ===== */}
       {showAdminLogin && !isAdmin && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-slate-800 border border-slate-700 rounded-xl p-6 max-w-md w-full"
-          >
-            <h3 className="text-xl font-bold text-white mb-4">Admin Login</h3>
-            
-            <input
-              type="password"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Admin password"
-              className="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white focus:border-indigo-500 outline-none mb-4"
-              onKeyPress={(e) => e.key === 'Enter' && adminLogin()}
-            />
-            
-            <div className="flex gap-3">
-              <button
-                onClick={adminLogin}
-                className="flex-1 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition"
-              >
-                Login
-              </button>
-              <button
-                onClick={() => setShowAdminLogin(false)}
-                className="px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition"
-              >
-                Cancel
-              </button>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 20 }}>
+          <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 24, maxWidth: 380, width: '100%' }}>
+            <h3 style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 12 }}>⚡ Admin Login</h3>
+            <input type="password" value={adminPass} onChange={e => setAdminPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && adminLogin()} placeholder="Admin password" style={{ width: '100%', padding: '12px 16px', background: '#0f172a', border: '1px solid #334155', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={adminLogin} style={{ flex: 1, padding: 12, borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Login</button>
+              <button onClick={() => setShowAdminLogin(false)} style={{ padding: '12px 20px', borderRadius: 8, border: '1px solid #334155', background: 'transparent', color: '#94a3b8', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
             </div>
-          </motion.div>
+          </div>
         </div>
       )}
     </div>
   );
 }
-
-export default App;
